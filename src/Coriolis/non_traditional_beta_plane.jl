@@ -21,6 +21,7 @@ struct NonTraditionalBetaPlane{FT} <: AbstractRotation
     β  :: FT
     γ  :: FT
     R  :: FT
+    Cz :: FT
 end
 
 """
@@ -37,7 +38,7 @@ By default, the `rotation_rate` and planet `radius` is assumed to be Earth's.
 """
 function NonTraditionalBetaPlane(FT=Float64;
         fz=nothing, fy=nothing, β=nothing, γ=nothing,
-        rotation_rate=Ω_Earth, latitude=nothing, radius=R_Earth)
+        rotation_rate=Ω_Earth, latitude=nothing, radius=R_Earth, Cz=1)
 
     Ω, φ, R =  rotation_rate, latitude, radius
 
@@ -56,11 +57,11 @@ function NonTraditionalBetaPlane(FT=Float64;
         γ  = -4Ω*sind(φ)/R
     end
 
-    return NonTraditionalBetaPlane{FT}(fz, fy, β, γ, R)
+    return NonTraditionalBetaPlane{FT}(fz, fy, β, γ, R, Cz)
 end
 
-@inline two_Ωʸ(P, y, z) = P.fy * (1 -  z/P.R) + P.γ * y
-@inline two_Ωᶻ(P, y, z) = P.fz * (1 + 2z/P.R) + P.β * y
+@inline two_Ωʸ(P, y, z) = P.fy * (1 - P.Cz *  z/P.R) + P.γ * y
+@inline two_Ωᶻ(P, y, z) = P.fz * (1 + P.Cz * 2z/P.R) + P.β * y
 
 # This function is eventually interpolated to fcc to contribute to x_f_cross_U.
 @inline two_Ωʸw_minus_two_Ωᶻv(i, j, k, grid, coriolis, U) =
@@ -78,5 +79,5 @@ end
 
 Base.show(io::IO, β_plane::NonTraditionalBetaPlane{FT}) where FT =
     print(io, "NonTraditionalBetaPlane{$FT}: ",
-          @sprintf("fz = %.2e, fy = %.2e, β = %.2e, γ = %.2e, R = %.2e",
-                   β_plane.fz, β_plane.fy, β_plane.β, β_plane.γ, β_plane.R))
+          @sprintf("fz = %.2e, fy = %.2e, β = %.2e, γ = %.2e, R = %.2e, Cz=%.2e",
+                   β_plane.fz, β_plane.fy, β_plane.β, β_plane.γ, β_plane.R, β_plane.Cz))
