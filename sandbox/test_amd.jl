@@ -1,9 +1,21 @@
+using Random
 
-grid = RegularRectilinearGrid(size=(2,2,2), extent=(1,1,1))
+grid = RegularRectilinearGrid(size=(3,3,3), extent=(1,1,1))
 
-amd = AnisotropicMinimumDissipation(Cn=1)
-model = IncompressibleModel(grid=grid, closure=amd)
+for cn in [nothing, 1]
+    amd = AnisotropicMinimumDissipation(Cn=cn)
+    display(amd)
+    model = IncompressibleModel(grid=grid, closure=amd)
 
-simulation = Simulation(model, Δt=1, stop_iteration=2)
-@info "Starting run"
-run!(simulation)
+    local rng = MersenneTwister(12345);
+    u₀ = rand(rng, size(model.grid)...)
+    set!(model, u=u₀)
+
+    #display(model.velocities.u.data)
+
+    simulation = Simulation(model, Δt=1, stop_iteration=2)
+    @info "Starting run"
+    run!(simulation)
+
+    display(model.velocities.u.data)
+end
