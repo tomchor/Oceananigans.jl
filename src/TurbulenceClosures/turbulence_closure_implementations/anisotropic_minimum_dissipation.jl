@@ -156,7 +156,7 @@ end
 end
 
 @inline Δᶠbᶜᶜᶜ(i, j, k, grid, dbdz, w) = (w[i,j,k]^2 + 1e-9) / dbdz
-@inline function δ²(i, j, k, grid::AbstractGrid{FT}, Cn, closure, buoyancy, w, C) where FT
+@inline function δ²(i, j, k, grid::AbstractGrid{FT}, Cn::Number, closure, buoyancy, w, C) where FT
     ijk = (i, j, k, grid)
     dbdz = ℑzᵃᵃᶜ(ijk..., ∂zᵃᵃᶠ, buoyancy_perturbation, buoyancy.model, C)
     return 3 / (1 / Δᶠxᶜᶜᶜ(ijk...)^2 + 
@@ -170,7 +170,6 @@ end
     q = norm_tr_∇uᶜᶜᶜ(ijk..., U.u, U.v, U.w)
     Cb = closure.Cb
     Cn = closure.Cb
-    @info "Calculate ν3"
 
     if q == 0 # SGS viscosity is zero when strain is 0
         νˢᵍˢ = zero(FT)
@@ -179,8 +178,6 @@ end
 
         # So-called buoyancy modification term:
         Cb_ζ = Cb_norm_wᵢ_bᵢᶜᶜᶜ(ijk..., Cb, closure, buoyancy, U.w, C) / Δᶠzᶜᶜᶜ(ijk...)
-
-        #δ² = 3 / (1 / Δᶠxᶜᶜᶜ(ijk...)^2 + 1 / Δᶠyᶜᶜᶜ(ijk...)^2 + 1 / Δᶠzᶜᶜᶜ(ijk...)^2)
 
         νˢᵍˢ = - Cᴾᵒⁱⁿ(i, j, k, grid, closure.Cν) * δ²(ijk..., Cn, closure, buoyancy, U.w, C) * (r - Cb_ζ) / q
     end
@@ -202,8 +199,7 @@ end
         κˢᵍˢ = zero(FT)
     else
         ϑ =  norm_uᵢⱼ_cⱼ_cᵢᶜᶜᶜ(ijk..., closure, U.u, U.v, U.w, c)
-        #δ² = 3 / (1 / Δᶠxᶜᶜᶜ(ijk...)^2 + 1 / Δᶠyᶜᶜᶜ(ijk...)^2 + 1 / Δᶠzᶜᶜᶜ(ijk...)^2)
-        κˢᵍˢ = - Cᴾᵒⁱⁿ(i, j, k, grid, Cκ) * δ²(ijk...) * ϑ / σ
+        κˢᵍˢ = - Cᴾᵒⁱⁿ(i, j, k, grid, Cκ) * δ²(ijk..., Cn, closure, buoyancy, U.w, C) * ϑ / σ
     end
 
     return max(zero(FT), κˢᵍˢ) + κ
