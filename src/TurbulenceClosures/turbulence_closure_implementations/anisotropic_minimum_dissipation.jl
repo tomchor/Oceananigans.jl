@@ -145,10 +145,28 @@ end
 @inline Cᴾᵒⁱⁿ(i, j, k, grid, C::AbstractArray) = @inbounds C[i, j, k]
 @inline Cᴾᵒⁱⁿ(i, j, k, grid, C::Function) = C(xnode(Center(), i, grid), ynode(Center(), j, grid), znode(Center(), k, grid))
 
+
+@inline function δ²(i, j, k, grid, Cₙ::Nothing, closure, buoyancy, w, C)
+    ijk = (i, j, k, grid)
+    return 3 / (1 / Δᶠxᶜᶜᶜ(ijk...)^2 + 1 / Δᶠyᶜᶜᶜ(ijk...)^2 + 1 / Δᶠzᶜᶜᶜ(ijk...)^2)
+end
+
+@inline Δᶠbᶜᶜᶜ(i, j, k, grid, dbdz, w) = (w[i,j,k]^2 + 1e-9) / dbdz
+@inline function δ²(i, j, k, grid::AbstractGrid{FT}, Cₙ, closure, buoyancy, w, C) where FT
+    ijk = (i, j, k, grid)
+    dbdz = ℑzᵃᵃᶜ(ijk..., ∂zᵃᵃᶠ, buoyancy_perturbation, buoyancy.model, C)
+    return 3 / (1 / Δᶠxᶜᶜᶜ(ijk...)^2 + 
+                1 / Δᶠyᶜᶜᶜ(ijk...)^2 + 
+                1 / Δᶠzᶜᶜᶜ(ijk...)^2 + 
+                max(zero(FT), Cₙ / Δᶠbᶜᶜᶜ(ijk..., dbdz, w)))
+end
+
 @inline function νᶜᶜᶜ(i, j, k, grid::AbstractGrid{FT}, closure::AMD, buoyancy, U, C) where FT
     ijk = (i, j, k, grid)
     q = norm_tr_∇uᶜᶜᶜ(ijk..., U.u, U.v, U.w)
     Cb = closure.Cb
+    Cₙ = nothing
+    @info "Calculate ν1"
 
     if q == 0 # SGS viscosity is zero when strain is 0
         νˢᵍˢ = zero(FT)
@@ -158,9 +176,9 @@ end
         # So-called buoyancy modification term:
         Cb_ζ = Cb_norm_wᵢ_bᵢᶜᶜᶜ(ijk..., Cb, closure, buoyancy, U.w, C) / Δᶠzᶜᶜᶜ(ijk...)
 
-        δ² = 3 / (1 / Δᶠxᶜᶜᶜ(ijk...)^2 + 1 / Δᶠyᶜᶜᶜ(ijk...)^2 + 1 / Δᶠzᶜᶜᶜ(ijk...)^2)
+        #δ² = 3 / (1 / Δᶠxᶜᶜᶜ(ijk...)^2 + 1 / Δᶠyᶜᶜᶜ(ijk...)^2 + 1 / Δᶠzᶜᶜᶜ(ijk...)^2)
 
-        νˢᵍˢ = - Cᴾᵒⁱⁿ(i, j, k, grid, closure.Cν) * δ² * (r - Cb_ζ) / q
+        νˢᵍˢ = - Cᴾᵒⁱⁿ(i, j, k, grid, closure.Cν) * δ²(ijk..., Cₙ, closure, buoyancy, U.w, C) * (r - Cb_ζ) / q
     end
 
     return max(zero(FT), νˢᵍˢ) + closure.ν
@@ -180,8 +198,8 @@ end
         κˢᵍˢ = zero(FT)
     else
         ϑ =  norm_uᵢⱼ_cⱼ_cᵢᶜᶜᶜ(ijk..., closure, U.u, U.v, U.w, c)
-        δ² = 3 / (1 / Δᶠxᶜᶜᶜ(ijk...)^2 + 1 / Δᶠyᶜᶜᶜ(ijk...)^2 + 1 / Δᶠzᶜᶜᶜ(ijk...)^2)
-        κˢᵍˢ = - Cᴾᵒⁱⁿ(i, j, k, grid, Cκ) * δ² * ϑ / σ
+        #δ² = 3 / (1 / Δᶠxᶜᶜᶜ(ijk...)^2 + 1 / Δᶠyᶜᶜᶜ(ijk...)^2 + 1 / Δᶠzᶜᶜᶜ(ijk...)^2)
+        κˢᵍˢ = - Cᴾᵒⁱⁿ(i, j, k, grid, Cκ) * δ²(ijk...) * ϑ / σ
     end
 
     return max(zero(FT), κˢᵍˢ) + κ
