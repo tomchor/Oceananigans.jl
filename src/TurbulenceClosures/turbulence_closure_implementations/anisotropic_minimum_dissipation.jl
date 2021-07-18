@@ -7,17 +7,18 @@ Parameters for the "anisotropic minimum dissipation" turbulence closure for larg
 proposed originally by [Rozema15](@cite) and [Abkar16](@cite), and then modified
 by [Verstappen18](@cite), and finally described and validated for by [Vreugdenhil18](@cite).
 """
-struct AnisotropicMinimumDissipation{TD, FT, PK, PN, K, PB} <: AbstractEddyViscosityClosure{TD}
+struct AnisotropicMinimumDissipation{TD, FT, PK, PN, K, PB, PB2} <: AbstractEddyViscosityClosure{TD}
     Cν :: PN
     Cκ :: PK
     Cb :: PB
+    Cn :: PB2
      ν :: FT
      κ :: K
 
-    function AnisotropicMinimumDissipation{TD, FT}(Cν::PN, Cκ::PK, Cb::PB, ν, κ) where {TD, FT, PN, PK, PB}
+    function AnisotropicMinimumDissipation{TD, FT}(Cν::PN, Cκ::PK, Cb::PB, Cn::PB2, ν, κ) where {TD, FT, PN, PK, PB, PB2}
         κ = convert_diffusivity(FT, κ)
         K = typeof(κ)
-        return new{TD, FT, PK, PN, K, PB}(Cν, Cκ, Cb, ν, κ)
+        return new{TD, FT, PK, PN, K, PB, PB2}(Cν, Cκ, Cb, Cn, ν, κ)
     end
 end
 
@@ -28,12 +29,13 @@ Base.show(io::IO, closure::AMD{TD, FT}) where {TD, FT} =
               "           Poincaré constant for momentum eddy viscosity Cν: ", closure.Cν, '\n',
               "    Poincaré constant for tracer(s) eddy diffusivit(ies) Cκ: ", closure.Cκ, '\n',
               "                        Buoyancy modification multiplier Cb: ", closure.Cb, '\n',
+              "                      Buoyancy modification multiplier 2 Cn: ", closure.Cn, '\n',
               "                Background diffusivit(ies) for tracer(s), κ: ", closure.κ, '\n',
               "             Background kinematic viscosity for momentum, ν: ", closure.ν)
 
 """
     AnisotropicMinimumDissipation([FT=Float64;] C=1/12, Cν=nothing, Cκ=nothing,
-                                                Cb=nothing, ν=0, κ=0,
+                                                Cb=nothing, Cn=nothing, ν=0, κ=0,
                                                 time_discretization=ExplicitTimeDiscretization())
                                        
 Returns parameters of type `FT` for the `AnisotropicMinimumDissipation`
@@ -118,6 +120,7 @@ function AnisotropicMinimumDissipation(FT = Float64;
                                        Cν = nothing,
                                        Cκ = nothing,
                                        Cb = nothing,
+                                       Cn = nothing,
                                        ν = 0,
                                        κ = 0,
                                        time_discretization::TD = ExplicitTimeDiscretization()) where TD
@@ -125,14 +128,15 @@ function AnisotropicMinimumDissipation(FT = Float64;
     Cκ = Cκ === nothing ? C : Cκ
     
     !isnothing(Cb) && @warn "AnisotropicMinimumDissipation with buoyancy modification is unvalidated."
+    !isnothing(Cn) && @warn "Cn is being activated!"
 
-    return AnisotropicMinimumDissipation{TD, FT}(Cν, Cκ, Cb, ν, κ)
+    return AnisotropicMinimumDissipation{TD, FT}(Cν, Cκ, Cb, Cn, ν, κ)
 end
 
 function with_tracers(tracers, closure::AnisotropicMinimumDissipation{TD, FT}) where {TD, FT}
     κ = tracer_diffusivities(tracers, closure.κ)
     Cκ = tracer_diffusivities(tracers, closure.Cκ)
-    return AnisotropicMinimumDissipation{TD, FT}(closure.Cν, Cκ, closure.Cb, closure.ν, κ)
+    return AnisotropicMinimumDissipation{TD, FT}(closure.Cν, Cκ, closure.Cb, closure.Cn, closure.ν, κ)
 end
 
 #####
@@ -146,27 +150,27 @@ end
 @inline Cᴾᵒⁱⁿ(i, j, k, grid, C::Function) = C(xnode(Center(), i, grid), ynode(Center(), j, grid), znode(Center(), k, grid))
 
 
-@inline function δ²(i, j, k, grid, Cₙ::Nothing, closure, buoyancy, w, C)
+@inline function δ²(i, j, k, grid, Cn::Nothing, closure, buoyancy, w, C)
     ijk = (i, j, k, grid)
     return 3 / (1 / Δᶠxᶜᶜᶜ(ijk...)^2 + 1 / Δᶠyᶜᶜᶜ(ijk...)^2 + 1 / Δᶠzᶜᶜᶜ(ijk...)^2)
 end
 
 @inline Δᶠbᶜᶜᶜ(i, j, k, grid, dbdz, w) = (w[i,j,k]^2 + 1e-9) / dbdz
-@inline function δ²(i, j, k, grid::AbstractGrid{FT}, Cₙ, closure, buoyancy, w, C) where FT
+@inline function δ²(i, j, k, grid::AbstractGrid{FT}, Cn, closure, buoyancy, w, C) where FT
     ijk = (i, j, k, grid)
     dbdz = ℑzᵃᵃᶜ(ijk..., ∂zᵃᵃᶠ, buoyancy_perturbation, buoyancy.model, C)
     return 3 / (1 / Δᶠxᶜᶜᶜ(ijk...)^2 + 
                 1 / Δᶠyᶜᶜᶜ(ijk...)^2 + 
                 1 / Δᶠzᶜᶜᶜ(ijk...)^2 + 
-                max(zero(FT), Cₙ / Δᶠbᶜᶜᶜ(ijk..., dbdz, w)))
+                max(zero(FT), Cn / Δᶠbᶜᶜᶜ(ijk..., dbdz, w)))
 end
 
 @inline function νᶜᶜᶜ(i, j, k, grid::AbstractGrid{FT}, closure::AMD, buoyancy, U, C) where FT
     ijk = (i, j, k, grid)
     q = norm_tr_∇uᶜᶜᶜ(ijk..., U.u, U.v, U.w)
     Cb = closure.Cb
-    Cₙ = nothing
-    @info "Calculate ν1"
+    Cn = closure.Cb
+    @info "Calculate ν3"
 
     if q == 0 # SGS viscosity is zero when strain is 0
         νˢᵍˢ = zero(FT)
@@ -178,7 +182,7 @@ end
 
         #δ² = 3 / (1 / Δᶠxᶜᶜᶜ(ijk...)^2 + 1 / Δᶠyᶜᶜᶜ(ijk...)^2 + 1 / Δᶠzᶜᶜᶜ(ijk...)^2)
 
-        νˢᵍˢ = - Cᴾᵒⁱⁿ(i, j, k, grid, closure.Cν) * δ²(ijk..., Cₙ, closure, buoyancy, U.w, C) * (r - Cb_ζ) / q
+        νˢᵍˢ = - Cᴾᵒⁱⁿ(i, j, k, grid, closure.Cν) * δ²(ijk..., Cn, closure, buoyancy, U.w, C) * (r - Cb_ζ) / q
     end
 
     return max(zero(FT), νˢᵍˢ) + closure.ν
