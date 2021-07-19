@@ -150,19 +150,19 @@ end
 @inline Cᴾᵒⁱⁿ(i, j, k, grid, C::Function) = C(xnode(Center(), i, grid), ynode(Center(), j, grid), znode(Center(), k, grid))
 
 
-@inline function δ²(i, j, k, grid, Cn::Nothing, closure, buoyancy, w, C)
+@inline function δ²(i, j, k, grid, Cn::Nothing, buoyancy, w, C)
     ijk = (i, j, k, grid)
     return 3 / (1 / Δᶠxᶜᶜᶜ(ijk...)^2 + 1 / Δᶠyᶜᶜᶜ(ijk...)^2 + 1 / Δᶠzᶜᶜᶜ(ijk...)^2)
 end
 
 @inline Δᶠbᶜᶜᶜ(i, j, k, grid, dbdz, w) = (w[i,j,k]^2 + 1e-9) / dbdz
-@inline function δ²(i, j, k, grid::AbstractGrid{FT}, Cn::Number, closure, buoyancy, w, C) where FT
+@inline function δ²(i, j, k, grid::AbstractGrid{FT}, Cn::Number, buoyancy, w, C) where FT
     ijk = (i, j, k, grid)
     dbdz = ℑzᵃᵃᶜ(ijk..., ∂zᵃᵃᶠ, buoyancy_perturbation, buoyancy.model, C)
     return 3 / (1 / Δᶠxᶜᶜᶜ(ijk...)^2 + 
                 1 / Δᶠyᶜᶜᶜ(ijk...)^2 + 
                 1 / Δᶠzᶜᶜᶜ(ijk...)^2 + 
-                max(zero(FT), Cn / Δᶠbᶜᶜᶜ(ijk..., dbdz, w)))
+                max(zero(FT), Cn / Δᶠbᶜᶜᶜ(ijk..., dbdz, w))^2)
 end
 
 @inline function νᶜᶜᶜ(i, j, k, grid::AbstractGrid{FT}, closure::AMD, buoyancy, U, C) where FT
@@ -179,14 +179,14 @@ end
         # So-called buoyancy modification term:
         Cb_ζ = Cb_norm_wᵢ_bᵢᶜᶜᶜ(ijk..., Cb, closure, buoyancy, U.w, C) / Δᶠzᶜᶜᶜ(ijk...)
 
-        νˢᵍˢ = - Cᴾᵒⁱⁿ(i, j, k, grid, closure.Cν) * δ²(ijk..., Cn, closure, buoyancy, U.w, C) * (r - Cb_ζ) / q
+        νˢᵍˢ = - Cᴾᵒⁱⁿ(i, j, k, grid, closure.Cν) * δ²(ijk..., Cn, buoyancy, U.w, C) * (r - Cb_ζ) / q
     end
 
     return max(zero(FT), νˢᵍˢ) + closure.ν
 end
 
-@inline function κᶜᶜᶜ(i, j, k, grid::AbstractGrid{FT}, closure::AMD, c, ::Val{tracer_index},
-                       U) where {FT, tracer_index}
+@inline function κᶜᶜᶜ(i, j, k, grid::AbstractGrid{FT}, closure::AMD, buoyancy, c, ::Val{tracer_index},
+                       U, C) where {FT, tracer_index}
 
     ijk = (i, j, k, grid)
 
@@ -199,7 +199,7 @@ end
         κˢᵍˢ = zero(FT)
     else
         ϑ =  norm_uᵢⱼ_cⱼ_cᵢᶜᶜᶜ(ijk..., closure, U.u, U.v, U.w, c)
-        κˢᵍˢ = - Cᴾᵒⁱⁿ(i, j, k, grid, Cκ) * δ²(ijk..., Cn, closure, buoyancy, U.w, C) * ϑ / σ
+        κˢᵍˢ = - Cᴾᵒⁱⁿ(i, j, k, grid, Cκ) * δ²(ijk..., closure.Cn, buoyancy, U.w, C) * ϑ / σ
     end
 
     return max(zero(FT), κˢᵍˢ) + κ
@@ -219,7 +219,7 @@ function calculate_diffusivities!(K, arch, grid, closure::AnisotropicMinimumDiss
 
     for (tracer_index, κₑ) in enumerate(K.κₑ)
         @inbounds c = C[tracer_index]
-        event = diffusivity_kernel!(κₑ, grid, closure, c, Val(tracer_index), U, dependencies=barrier)
+        event = diffusivity_kernel!(κₑ, grid, closure, buoyancy, c, Val(tracer_index), U, C, dependencies=barrier)
         push!(events, event)
     end
 
@@ -233,9 +233,9 @@ end
     @inbounds νₑ[i, j, k] = νᶜᶜᶜ(i, j, k, grid, closure, buoyancy, U, C)
 end
 
-@kernel function calculate_tracer_diffusivity!(κₑ, grid, closure, c, tracer_index, U)
+@kernel function calculate_tracer_diffusivity!(κₑ, grid, closure::AnisotropicMinimumDissipation, buoyancy, c, tracer_index, U, C)
     i, j, k = @index(Global, NTuple)
-    @inbounds κₑ[i, j, k] = κᶜᶜᶜ(i, j, k, grid, closure, c, tracer_index, U)
+    @inbounds κₑ[i, j, k] = κᶜᶜᶜ(i, j, k, grid, closure, buoyancy, c, tracer_index, U, C)
 end
 
 #####
