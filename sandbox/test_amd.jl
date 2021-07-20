@@ -3,7 +3,7 @@ using Oceananigans.Units
 using Random
 using Printf
 
-grid = RegularRectilinearGrid(size=(16, 64, 16), extent=(32, 32, 64), topology=(Periodic, Periodic, Bounded))
+grid = RegularRectilinearGrid(size=(16, 16, 64), extent=(32, 32, 64), topology=(Periodic, Periodic, Bounded))
 
 buoyancy_flux = 1e-8 # m² s⁻³
 N² = 1e-4 # s⁻²
@@ -44,8 +44,9 @@ progress(sim) = @printf("Iteration: %d, time: %s, Δt: %s\n",
     w2 = ComputedField(w^2)
     bz = ComputedField(∂z(b))
 
+    fname = isnothing(cn) ? "avg.test_amd_original.nc" : "avg.test_amd.nc"
     simulation.output_writers[:avg] = NetCDFOutputWriter(model, (; w2, bz), 
-                                                         filepath="avg.test_amd.nc", 
+                                                         filepath=fname, 
                                                          schedule=TimeInterval(20minutes),
                                                          mode="c",
                                                          array_type = Array{Float64}

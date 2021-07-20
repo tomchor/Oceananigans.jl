@@ -155,14 +155,14 @@ end
     return 3 / (1 / Δᶠxᶜᶜᶜ(ijk...)^2 + 1 / Δᶠyᶜᶜᶜ(ijk...)^2 + 1 / Δᶠzᶜᶜᶜ(ijk...)^2)
 end
 
-@inline Δᶠbᶜᶜᶜ(i, j, k, grid, dbdz, w) = (w[i,j,k]^2 + 1e-9) / dbdz
+@inline Δᶠₙ²(i, j, k, grid, dbdz, w) = (w[i,j,k]^2 + 1e-9) / dbdz
 @inline function δ²(i, j, k, grid::AbstractGrid{FT}, Cn::Number, buoyancy, w, C) where FT
     ijk = (i, j, k, grid)
     dbdz = ℑzᵃᵃᶜ(ijk..., ∂zᵃᵃᶠ, buoyancy_perturbation, buoyancy.model, C)
     return 3 / (1 / Δᶠxᶜᶜᶜ(ijk...)^2 + 
                 1 / Δᶠyᶜᶜᶜ(ijk...)^2 + 
                 1 / Δᶠzᶜᶜᶜ(ijk...)^2 + 
-                max(zero(FT), Cn / Δᶠbᶜᶜᶜ(ijk..., dbdz, w))^2)
+                max(zero(FT), Cn / Δᶠₙ²(ijk..., dbdz, w)))
 end
 
 @inline function νᶜᶜᶜ(i, j, k, grid::AbstractGrid{FT}, closure::AMD, buoyancy, U, C) where FT
