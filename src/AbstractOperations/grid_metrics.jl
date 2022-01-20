@@ -66,11 +66,11 @@ julia> using Oceananigans
 
 julia> using Oceananigans.AbstractOperations: Δz
 
-julia> grid = RegularRectilinearGrid(size=(1, 1, 1), extent=(1, 2, 3)); c = CenterField(CPU(), grid);
+julia> grid = RectilinearGrid(size=(1, 1, 1), extent=(1, 2, 3)); c = CenterField(grid);
 
 julia> c_dz = c * Δz # returns BinaryOperation between Field and GridMetricOperation
 BinaryOperation at (Center, Center, Center)
-├── grid: RegularRectilinearGrid{Float64, Periodic, Periodic, Bounded}(Nx=1, Ny=1, Nz=1)
+├── grid: RectilinearGrid{Float64, Periodic, Periodic, Bounded}(Nx=1, Ny=1, Nz=1)
 │   └── domain: x ∈ [0.0, 1.0], y ∈ [0.0, 2.0], z ∈ [-3.0, 0.0]
 └── tree:
     * at (Center, Center, Center)
@@ -105,13 +105,13 @@ julia> using Oceananigans
 
 julia> using Oceananigans.AbstractOperations: volume
 
-julia> grid = RegularRectilinearGrid(size=(2, 2, 2), extent=(1, 2, 3)); c = CenterField(CPU(), grid);
+julia> grid = RectilinearGrid(size=(2, 2, 2), extent=(1, 2, 3)); c = CenterField(grid);
 
 julia> c .= 1;
 
 julia> c_dV = c * volume
 BinaryOperation at (Center, Center, Center)
-├── grid: RegularRectilinearGrid{Float64, Periodic, Periodic, Bounded}(Nx=2, Ny=2, Nz=2)
+├── grid: RectilinearGrid{Float64, Periodic, Periodic, Bounded}(Nx=2, Ny=2, Nz=2)
 │   └── domain: x ∈ [0.0, 1.0], y ∈ [0.0, 2.0], z ∈ [-3.0, 0.0]
 └── tree:
     * at (Center, Center, Center)
@@ -140,16 +140,13 @@ function metric_function(loc, metric::AbstractGridMetric)
     return eval(metric_function_symbol)
 end
 
-struct GridMetricOperation{X, Y, Z, A, G, T, M} <: AbstractOperation{X, Y, Z, A, G, T}
+struct GridMetricOperation{LX, LY, LZ, G, T, M} <: AbstractOperation{LX, LY, LZ, G, T}
           metric :: M
             grid :: G
-    architecture :: A
 
-    function GridMetricOperation{X, Y, Z}(metric::M, grid::G) where {X, Y, Z, M, G}
-        arch = architecture(grid)
-        A = typeof(arch)
+    function GridMetricOperation{LX, LY, LZ}(metric::M, grid::G) where {LX, LY, LZ, M, G}
         T = eltype(grid)
-        return new{X, Y, Z, A, G, T, M}(metric, grid, arch)
+        return new{LX, LY, LZ, G, T, M}(metric, grid)
     end
 end
 

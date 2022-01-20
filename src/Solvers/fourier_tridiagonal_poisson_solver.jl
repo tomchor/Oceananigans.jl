@@ -1,8 +1,8 @@
 using Oceananigans.Operators: Δzᵃᵃᶜ, Δzᵃᵃᶠ
 using Oceananigans.Architectures: device_event
+import Oceananigans.Architectures: architecture
 
-struct FourierTridiagonalPoissonSolver{A, G, B, R, S, β, T}
-                  architecture :: A
+struct FourierTridiagonalPoissonSolver{G, B, R, S, β, T}
                           grid :: G
     batched_tridiagonal_solver :: B
                    source_term :: R
@@ -10,6 +10,8 @@ struct FourierTridiagonalPoissonSolver{A, G, B, R, S, β, T}
                         buffer :: β
                     transforms :: T
 end
+
+architecture(solver::FourierTridiagonalPoissonSolver) = architecture(solver.grid)
 
 @kernel function compute_main_diagonals!(D, grid, λx, λy)
     i, j = @index(Global, NTuple)
@@ -25,7 +27,7 @@ end
     D[i, j, Nz] = -1 / Δzᵃᵃᶠ(i, j, Nz, grid) - Δzᵃᵃᶜ(i, j, Nz, grid) * (λx[i] + λy[j])
 end
 
-function FourierTridiagonalPoissonSolver(arch, grid, planner_flag=FFTW.PATIENT)
+function FourierTridiagonalPoissonSolver(grid, planner_flag=FFTW.PATIENT)
     TX, TY, TZ = topology(grid)
     TZ != Bounded && error("FourierTridiagonalPoissonSolver can only be used with a Bounded z topology.")
 
@@ -35,12 +37,13 @@ function FourierTridiagonalPoissonSolver(arch, grid, planner_flag=FFTW.PATIENT)
     λx = poisson_eigenvalues(grid.Nx, grid.Lx, 1, TX())
     λy = poisson_eigenvalues(grid.Ny, grid.Ly, 2, TY())
 
+    arch = architecture(grid)
     λx = arch_array(arch, λx)
     λy = arch_array(arch, λy)
 
     # Plan required transforms for x and y
     sol_storage = arch_array(arch, zeros(complex(eltype(grid)), size(grid)...))
-    transforms = plan_transforms(arch, grid, sol_storage, planner_flag)
+    transforms = plan_transforms(grid, sol_storage, planner_flag)
 
     # Lower and upper diagonals are the same
     lower_diagonal = CUDA.@allowscalar [1 / Δzᵃᵃᶠ(1, 1, k, grid) for k in 2:Nz]
@@ -53,10 +56,10 @@ function FourierTridiagonalPoissonSolver(arch, grid, planner_flag=FFTW.PATIENT)
     wait(device(arch), event)
 
     # Set up batched tridiagonal solver
-    btsolver = BatchedTridiagonalSolver(arch, grid;
-                                         lower_diagonal = lower_diagonal,
-                                               diagonal = diagonal,
-                                         upper_diagonal = upper_diagonal)
+    btsolver = BatchedTridiagonalSolver(grid;
+                                        lower_diagonal = lower_diagonal,
+                                              diagonal = diagonal,
+                                        upper_diagonal = upper_diagonal)
 
     # Need buffer for index permutations and transposes.
     buffer_needed = arch isa GPU && Bounded in (TX, TY)
@@ -65,18 +68,20 @@ function FourierTridiagonalPoissonSolver(arch, grid, planner_flag=FFTW.PATIENT)
     # Storage space for right hand side of Poisson equation
     rhs = arch_array(arch, zeros(complex(eltype(grid)), size(grid)...))
 
-    return FourierTridiagonalPoissonSolver(arch, grid, btsolver, rhs, sol_storage, buffer, transforms)
+    return FourierTridiagonalPoissonSolver(grid, btsolver, rhs, sol_storage, buffer, transforms)
 end
 
-function solve_poisson_equation!(solver::FourierTridiagonalPoissonSolver)
+function solve!(x, solver::FourierTridiagonalPoissonSolver, b=nothing)
+    !isnothing(b) && set_source_term!(solver, b) # otherwise, assume source term is set correctly
+
+    arch = architecture(solver)
     ϕ = solver.storage
-    RHS = solver.source_term
 
     # Apply forward transforms in order
-    [transform!(RHS, solver.buffer) for transform! in solver.transforms.forward]
+    [transform!(solver.source_term, solver.buffer) for transform! in solver.transforms.forward]
 
     # Solve tridiagonal system of linear equations in z at every column.
-    solve!(ϕ, solver.batched_tridiagonal_solver, RHS)
+    solve!(ϕ, solver.batched_tridiagonal_solver, solver.source_term)
 
     # Apply backward transforms in order
     [transform!(ϕ, solver.buffer) for transform! in solver.transforms.backward]
@@ -89,13 +94,10 @@ function solve_poisson_equation!(solver::FourierTridiagonalPoissonSolver)
     # so that the solution has zero-mean.
     ϕ .= ϕ .- mean(ϕ)
 
+    copy_event = launch!(arch, solver.grid, :xyz, copy_real_component!, x, ϕ, dependencies=device_event(arch))
+    wait(device(arch), copy_event)
+
     return nothing
-end
-
-@kernel function calculate_pressure_source_term_fourier_tridiagonal_solver!(RHS, grid, Δt, U★)
-    i, j, k = @index(Global, NTuple)
-
-    @inbounds RHS[i, j, k] = Δzᵃᵃᶜ(i, j, k, grid) * divᶜᶜᶜ(i, j, k, grid, U★.u, U★.v, U★.w) / Δt
 end
 
 """
@@ -106,7 +108,7 @@ to `source_term` by multiplying it by the vertical grid spacing at z cell center
 """
 function set_source_term!(solver::FourierTridiagonalPoissonSolver, source_term)
     grid = solver.grid
-    arch = solver.architecture
+    arch = architecture(solver)
     solver.source_term .= source_term
 
     event = launch!(arch, grid, :xyz, multiply_by_Δzᵃᵃᶜ!, solver.source_term, grid, dependencies=Event(device(arch)))

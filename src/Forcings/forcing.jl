@@ -43,7 +43,7 @@ If `discrete_form=true` then `func` must be callable with the "discrete form"
 where `i, j, k` is the grid point at which the forcing is applied, `grid` is `model.grid`,
 `clock.time` is the current simulation time and `clock.iteration` is the current model iteration,
 and `model_fields` is a `NamedTuple` with `u, v, w`, the fields in `model.tracers`,
-and the fields in `model.diffusivities`, each of which is an `OffsetArray`s (or `NamedTuple`s
+and the fields in `model.diffusivity_fields`, each of which is an `OffsetArray`s (or `NamedTuple`s
 of `OffsetArray`s depending on the turbulence closure) of field data.
 
 When `discrete_form=true` and `parameters` _is_ specified, `func` must be callable with the signature
@@ -72,7 +72,7 @@ Note that because forcing locations are regularized within the
 `NonhydrostaticModel` constructor:
 
 ```jldoctest forcing
-grid = RegularRectilinearGrid(size=(1, 1, 1), extent=(1, 1, 1))
+grid = RectilinearGrid(size=(1, 1, 1), extent=(1, 1, 1))
 model = NonhydrostaticModel(grid=grid, forcing=(v=v_forcing,))
 
 model.forcing.v
@@ -131,7 +131,7 @@ DiscreteForcing{Nothing}
 ```jldoctest forcing
 # Discrete-form forcing function with parameters
 masked_damping(i, j, k, grid, clock, model_fields, parameters) = 
-    @inbounds - parameters.μ * exp(grid.zC[k] / parameters.λ) * model_fields.u[i, j, k]
+    @inbounds - parameters.μ * exp(grid.zᵃᵃᶜ[k] / parameters.λ) * model_fields.u[i, j, k]
 
 masked_damping_forcing = Forcing(masked_damping, parameters=(μ=42, λ=π), discrete_form=true)
 

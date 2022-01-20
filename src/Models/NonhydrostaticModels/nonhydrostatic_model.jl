@@ -4,23 +4,26 @@ using OrderedCollections: OrderedDict
 using Oceananigans: AbstractModel, AbstractOutputWriter, AbstractDiagnostic
 
 using Oceananigans.Architectures: AbstractArchitecture
+using Oceananigans.Distributed: MultiArch
 using Oceananigans.Advection: CenteredSecondOrder
 using Oceananigans.BuoyancyModels: validate_buoyancy, regularize_buoyancy, SeawaterBuoyancy
 using Oceananigans.BoundaryConditions: regularize_field_boundary_conditions
 using Oceananigans.Fields: BackgroundFields, Field, tracernames, VelocityFields, TracerFields, PressureFields
 using Oceananigans.Forcings: model_forcing
-using Oceananigans.Grids: inflate_halo_size, with_halo
+using Oceananigans.Grids: inflate_halo_size, with_halo, architecture
 using Oceananigans.Solvers: FFTBasedPoissonSolver
-using Oceananigans.TimeSteppers: Clock, TimeStepper
+using Oceananigans.TimeSteppers: Clock, TimeStepper, update_state!
 using Oceananigans.TurbulenceClosures: with_tracers, DiffusivityFields, time_discretization, implicit_diffusion_solver
 using Oceananigans.LagrangianParticleTracking: LagrangianParticles
 using Oceananigans.Utils: tupleit
 using Oceananigans.Grids: topology
 
+import Oceananigans.Architectures: architecture
+
 const ParticlesOrNothing = Union{Nothing, LagrangianParticles}
 
 mutable struct NonhydrostaticModel{TS, E, A<:AbstractArchitecture, G, T, B, R, SD, U, C, Φ, F,
-                                   V, S, K, BG, P, I} <: AbstractModel{TS}
+                                   V, S, K, BG, P, I, AF} <: AbstractModel{TS}
 
          architecture :: A        # Computer `Architecture` on which `Model` is run
                  grid :: G        # Grid of physical points on which `Model` is solved
@@ -36,10 +39,11 @@ mutable struct NonhydrostaticModel{TS, E, A<:AbstractArchitecture, G, T, B, R, S
            velocities :: U        # Container for velocity fields `u`, `v`, and `w`
               tracers :: C        # Container for tracer fields
             pressures :: Φ        # Container for hydrostatic and nonhydrostatic pressure
-        diffusivities :: K        # Container for turbulent diffusivities
+   diffusivity_fields :: K        # Container for turbulent diffusivities
           timestepper :: TS       # Object containing timestepper fields and parameters
       pressure_solver :: S        # Pressure/Poisson solver
     immersed_boundary :: I        # Models the physics of immersed boundaries within the grid
+     auxiliary_fields :: AF       # User-specified auxiliary fields for forcing functions and boundary conditions
 end
 
 """
@@ -48,21 +52,22 @@ end
            architecture = CPU(),
                   clock = Clock{eltype(grid)}(0, 0, 1),
               advection = CenteredSecondOrder(),
-               buoyancy = Buoyancy(SeawaterBuoyancy(eltype(grid))),
+               buoyancy = nothing,
                coriolis = nothing,
            stokes_drift = nothing,
                 forcing = NamedTuple(),
                 closure = nothing,
     boundary_conditions = NamedTuple(),
-                tracers = (:T, :S),
+                tracers = (),
             timestepper = :QuasiAdamsBashforth2,
       background_fields = NamedTuple(),
               particles = nothing,
              velocities = nothing,
               pressures = nothing,
-          diffusivities = nothing,
+     diffusivity_fields = nothing,
         pressure_solver = nothing,
-      immersed_boundary = nothing
+      immersed_boundary = nothing,
+       auxiliary_fields = NamedTuple(),
     )
 
 Construct a model for a non-hydrostatic, incompressible fluid, using the Boussinesq approximation
@@ -71,41 +76,43 @@ when `buoyancy != nothing`. By default, all Bounded directions are rigid and imp
 Keyword arguments
 =================
 
-    - `grid`: (required) The resolution and discrete geometry on which `model` is solved.
-    - `architecture`: `CPU()` or `GPU()`. The computer architecture used to time-step `model`.
-    - `advection`: The scheme that advects velocities and tracers. See `Oceananigans.Advection`.
-    - `buoyancy`: The buoyancy model. See `Oceananigans.BuoyancyModels`.
-    - `closure`: The turbulence closure for `model`. See `Oceananigans.TurbulenceClosures`.
-    - `coriolis`: Parameters for the background rotation rate of the model.
-    - `forcing`: `NamedTuple` of user-defined forcing functions that contribute to solution tendencies.
-    - `boundary_conditions`: `NamedTuple` containing field boundary conditions.
-    - `tracers`: A tuple of symbols defining the names of the modeled tracers, or a `NamedTuple` of
-                 preallocated `CenterField`s.
-    - `timestepper`: A symbol that specifies the time-stepping method. Either `:QuasiAdamsBashforth2` or
-                     `:RungeKutta3`.
+  - `grid`: (required) The resolution and discrete geometry on which `model` is solved.
+  - `architecture`: `CPU()` or `GPU()`. The computer architecture used to time-step `model`.
+  - `advection`: The scheme that advects velocities and tracers. See `Oceananigans.Advection`.
+  - `buoyancy`: The buoyancy model. See `Oceananigans.BuoyancyModels`.
+  - `closure`: The turbulence closure for `model`. See `Oceananigans.TurbulenceClosures`.
+  - `coriolis`: Parameters for the background rotation rate of the model.
+  - `forcing`: `NamedTuple` of user-defined forcing functions that contribute to solution tendencies.
+  - `boundary_conditions`: `NamedTuple` containing field boundary conditions.
+  - `tracers`: A tuple of symbols defining the names of the modeled tracers, or a `NamedTuple` of
+               preallocated `CenterField`s.
+  - `timestepper`: A symbol that specifies the time-stepping method. Either `:QuasiAdamsBashforth2` or
+                   `:RungeKutta3`.
 """
 function NonhydrostaticModel(;    grid,
-    architecture::AbstractArchitecture = CPU(),
                                  clock = Clock{eltype(grid)}(0, 0, 1),
                              advection = CenteredSecondOrder(),
-                              buoyancy = Buoyancy(model=SeawaterBuoyancy(eltype(grid))),
+                              buoyancy = nothing,
                               coriolis = nothing,
                           stokes_drift = nothing,
                    forcing::NamedTuple = NamedTuple(),
                                closure = nothing,
        boundary_conditions::NamedTuple = NamedTuple(),
-                               tracers = (:T, :S),
+                               tracers = (),
                            timestepper = :QuasiAdamsBashforth2,
          background_fields::NamedTuple = NamedTuple(),
          particles::ParticlesOrNothing = nothing,
                             velocities = nothing,
                              pressures = nothing,
-                         diffusivities = nothing,
+                    diffusivity_fields = nothing,
                        pressure_solver = nothing,
-                     immersed_boundary = nothing
+                     immersed_boundary = nothing,
+                      auxiliary_fields = NamedTuple(),
     )
 
-    if architecture == GPU() && !has_cuda()
+    arch = architecture(grid)
+
+    if arch == GPU() && !has_cuda()
          throw(ArgumentError("Cannot create a GPU model. No CUDA-enabled GPU was detected!"))
     end
 
@@ -117,8 +124,15 @@ function NonhydrostaticModel(;    grid,
     # Adjust halos when the advection scheme or turbulence closure requires it.
     # Note that halos are isotropic by default; however we respect user-input here
     # by adjusting each (x, y, z) halo individually.
-    Hx, Hy, Hz = inflate_halo_size(grid.Hx, grid.Hy, grid.Hz, topology(grid), advection, closure)
-    grid = with_halo((Hx, Hy, Hz), grid)
+    user_halo = grid.Hx, grid.Hy, grid.Hz
+    required_halo = Hx, Hy, Hz = inflate_halo_size(user_halo..., topology(grid), advection, closure)
+    if any(user_halo .< required_halo) # Replace grid
+        @warn "Inflating model grid halo size to ($Hx, $Hy, $Hz) and recreating grid. " *
+              "The model grid will be different from the input grid. To avoid this warning, " *
+              "pass halo=($Hx, $Hy, $Hz) when constructing the grid."
+
+        grid = with_halo((Hx, Hy, Hz), grid)
+    end
 
     # Collect boundary conditions for all model prognostic fields and, if specified, some model
     # auxiliary fields. Boundary conditions are "regularized" based on the _name_ of the field:
@@ -130,7 +144,7 @@ function NonhydrostaticModel(;    grid,
     embedded_boundary_conditions = merge(extract_boundary_conditions(velocities),
                                          extract_boundary_conditions(tracers),
                                          extract_boundary_conditions(pressures),
-                                         extract_boundary_conditions(diffusivities))
+                                         extract_boundary_conditions(diffusivity_fields))
 
     # Next, we form a list of default boundary conditions:
     prognostic_field_names = (:u, :v, :w, tracernames(tracers)...)
@@ -145,30 +159,37 @@ function NonhydrostaticModel(;    grid,
     closure = with_tracers(tracernames(tracers), closure)
 
     # Either check grid-correctness, or construct tuples of fields
-    velocities    = VelocityFields(velocities, architecture, grid, boundary_conditions)
-    tracers       = TracerFields(tracers,      architecture, grid, boundary_conditions)
-    pressures     = PressureFields(pressures,  architecture, grid, boundary_conditions)
-    diffusivities = DiffusivityFields(diffusivities, architecture, grid, tracernames(tracers), boundary_conditions, closure)
+    velocities         = VelocityFields(velocities, grid, boundary_conditions)
+    tracers            = TracerFields(tracers,      grid, boundary_conditions)
+    pressures          = PressureFields(pressures,  grid, boundary_conditions)
+    diffusivity_fields = DiffusivityFields(diffusivity_fields, grid, tracernames(tracers), boundary_conditions, closure)
 
     if isnothing(pressure_solver)
-        pressure_solver = PressureSolver(architecture, grid)
+        pressure_solver = PressureSolver(arch, grid)
     end
 
     # Materialize background fields
     background_fields = BackgroundFields(background_fields, tracernames(tracers), grid, clock)
 
     # Instantiate timestepper if not already instantiated
-    implicit_solver = implicit_diffusion_solver(time_discretization(closure), architecture, grid)
-    timestepper = TimeStepper(timestepper, architecture, grid, tracernames(tracers), implicit_solver=implicit_solver)
+    implicit_solver = implicit_diffusion_solver(time_discretization(closure), arch, grid)
+    timestepper = TimeStepper(timestepper, grid, tracernames(tracers), implicit_solver=implicit_solver)
 
     # Regularize forcing for model tracer and velocity fields.
     model_fields = merge(velocities, tracers)
     forcing = model_forcing(model_fields; forcing...)
 
-    return NonhydrostaticModel(architecture, grid, clock, advection, buoyancy, coriolis, stokes_drift,
-                               forcing, closure, background_fields, particles, velocities, tracers,
-                               pressures, diffusivities, timestepper, pressure_solver, immersed_boundary)
+    model = NonhydrostaticModel(arch, grid, clock, advection, buoyancy, coriolis, stokes_drift,
+                                forcing, closure, background_fields, particles, velocities, tracers,
+                                pressures, diffusivity_fields, timestepper, pressure_solver, immersed_boundary,
+                                auxiliary_fields)
+
+    update_state!(model)
+    
+    return model
 end
+
+architecture(model::NonhydrostaticModel) = model.architecture
 
 #####
 ##### Recursive util for building NamedTuples of boundary conditions from NamedTuples of fields

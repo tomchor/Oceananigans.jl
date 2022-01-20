@@ -4,6 +4,7 @@
 
 using Base.Broadcast: DefaultArrayStyle
 using Base.Broadcast: Broadcasted
+using CUDA
 
 using Oceananigans.Architectures: device_event
 
@@ -13,13 +14,17 @@ Base.Broadcast.BroadcastStyle(::Type{<:AbstractField}) = FieldBroadcastStyle()
 
 # Precedence rule
 Base.Broadcast.BroadcastStyle(::FieldBroadcastStyle, ::DefaultArrayStyle{N}) where N = FieldBroadcastStyle()
+Base.Broadcast.BroadcastStyle(::FieldBroadcastStyle, ::CUDA.CuArrayStyle{N}) where N = FieldBroadcastStyle()
 
 # For use in Base.copy when broadcasting with numbers and arrays (useful for comparisons like f::AbstractField .== 0)
 Base.similar(bc::Broadcasted{FieldBroadcastStyle}, ::Type{ElType}) where ElType = similar(Array{ElType}, axes(bc))
 
 # Bypass style combining for in-place broadcasting with arrays / scalars to use built-in broadcasting machinery
-@inline Base.Broadcast.materialize!(dest::AbstractField, bc::Broadcasted{<:DefaultArrayStyle}) =
-    Base.Broadcast.materialize!(DefaultArrayStyle{3}(), dest, bc)
+const BroadcastedArrayOrCuArray = Union{Broadcasted{<:DefaultArrayStyle},
+                                        Broadcasted{<:CUDA.CuArrayStyle}}
+
+@inline Base.Broadcast.materialize!(dest::AbstractField, bc::BroadcastedArrayOrCuArray) =
+    Base.Broadcast.materialize!(interior(dest), bc)
 
 #####
 ##### Kernels
@@ -54,13 +59,13 @@ broadcast_kernel(::AbstractField) = broadcast_xyz!
 
 const Loc = Union{Center, Face}
 
-broadcast_kernel(::AbstractReducedField{Nothing, <:Loc, <:Loc}) = broadcast_yz!
-broadcast_kernel(::AbstractReducedField{<:Loc, Nothing, <:Loc}) = broadcast_xz!
-broadcast_kernel(::AbstractReducedField{<:Loc, <:Loc, Nothing}) = broadcast_xy!
+broadcast_kernel(::Field{Nothing, <:Loc, <:Loc}) = broadcast_yz!
+broadcast_kernel(::Field{<:Loc, Nothing, <:Loc}) = broadcast_xz!
+broadcast_kernel(::Field{<:Loc, <:Loc, Nothing}) = broadcast_xy!
 
-launch_configuration(::AbstractReducedField{Nothing, <:Loc, <:Loc}) = :yz
-launch_configuration(::AbstractReducedField{<:Loc, Nothing, <:Loc}) = :xz
-launch_configuration(::AbstractReducedField{<:Loc, <:Loc, Nothing}) = :xy
+launch_configuration(::Field{Nothing, <:Loc, <:Loc}) = :yz
+launch_configuration(::Field{<:Loc, Nothing, <:Loc}) = :xz
+launch_configuration(::Field{<:Loc, <:Loc, Nothing}) = :xy
 
 broadcasted_to_abstract_operation(loc, grid, a) = a
 
@@ -85,5 +90,5 @@ broadcasted_to_abstract_operation(loc, grid, a) = a
 
     wait(device(arch), event)
 
-    return nothing
+    return dest
 end
