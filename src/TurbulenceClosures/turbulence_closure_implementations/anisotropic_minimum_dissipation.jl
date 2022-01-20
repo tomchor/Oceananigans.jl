@@ -232,7 +232,7 @@ function calculate_diffusivities!(diffusivity_fields, closure::AnisotropicMinimu
 
     for (tracer_index, κₑ) in enumerate(diffusivity_fields.κₑ)
         @inbounds c = tracers[tracer_index]
-        event = diffusivity_kernel!(κₑ, grid, closure, buoyancy, c, Val(tracer_index), velocities, C, dependencies=barrier)
+        event = diffusivity_kernel!(κₑ, grid, closure, buoyancy, c, Val(tracer_index), velocities, tracers, dependencies=barrier)
         push!(events, event)
     end
 
