@@ -7,18 +7,19 @@ Parameters for the "anisotropic minimum dissipation" turbulence closure for larg
 proposed originally by [Rozema15](@cite) and [Abkar16](@cite), and then modified
 by [Verstappen18](@cite), and finally described and validated for by [Vreugdenhil18](@cite).
 """
-struct AnisotropicMinimumDissipation{TD, FT, PK, PN, K, PB, PB2} <: AbstractEddyViscosityClosure{TD}
+struct AnisotropicMinimumDissipation{TD, FT, PK, PN, K, PB, PB2, PR} <: AbstractEddyViscosityClosure{TD}
     Cν :: PN
     Cκ :: PK
     Cb :: PB
     Cn :: PB2
      ν :: FT
      κ :: K
+    Pr :: PR
 
-    function AnisotropicMinimumDissipation{TD, FT}(Cν::PN, Cκ::PK, Cb::PB, Cn::PB2, ν, κ) where {TD, FT, PN, PK, PB, PB2}
+    function AnisotropicMinimumDissipation{TD, FT}(Cν::PN, Cκ::PK, Cb::PB, Cn::PB2, ν, κ, Pr::PR) where {TD, FT, PN, PK, PB, PB2, PR}
         κ = convert_diffusivity(FT, κ)
         K = typeof(κ)
-        return new{TD, FT, PK, PN, K, PB, PB2}(Cν, Cκ, Cb, Cn, ν, κ)
+        return new{TD, FT, PK, PN, K, PB, PB2, PR}(Cν, Cκ, Cb, Cn, ν, κ, Pr)
     end
 end
 
@@ -132,6 +133,7 @@ function AnisotropicMinimumDissipation(FT = Float64;
                                        Cn = nothing,
                                        ν = 0,
                                        κ = 0,
+                                       Pr = nothing,
                                        time_discretization::TD = ExplicitTimeDiscretization()) where TD
     Cν = Cν === nothing ? C : Cν
     Cκ = Cκ === nothing ? C : Cκ
@@ -139,13 +141,13 @@ function AnisotropicMinimumDissipation(FT = Float64;
     !isnothing(Cb) && @warn "AnisotropicMinimumDissipation with buoyancy modification is unvalidated."
     !isnothing(Cn) && @warn "Cn is being activated!"
 
-    return AnisotropicMinimumDissipation{TD, FT}(Cν, Cκ, Cb, Cn, ν, κ)
+    return AnisotropicMinimumDissipation{TD, FT}(Cν, Cκ, Cb, Cn, ν, κ, Pr)
 end
 
 function with_tracers(tracers, closure::AnisotropicMinimumDissipation{TD, FT}) where {TD, FT}
     κ = tracer_diffusivities(tracers, closure.κ)
     Cκ = tracer_diffusivities(tracers, closure.Cκ)
-    return AnisotropicMinimumDissipation{TD, FT}(closure.Cν, Cκ, closure.Cb, closure.Cn, closure.ν, κ)
+    return AnisotropicMinimumDissipation{TD, FT}(closure.Cν, Cκ, closure.Cb, closure.Cn, closure.ν, κ, closure.Pr)
 end
 
 #####
