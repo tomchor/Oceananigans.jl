@@ -217,13 +217,19 @@ simulation.callbacks[:messenger] = Callback(progress, IterationInterval(10))
 using Oceanostics.FlowDiagnostics: ErtelPotentialVorticity
 u, v, w = model.velocities
 b = model.tracers.b
+νₑ = model.diffusivity_fields.νₑ
+if !(closure isa SmagorinskyLilly)
+    κₑ = model.diffusivity_fields.κₑ[:b]
+else
+    κₑ = Field(νₑ / closure.Pr)
+end
 
 
 dbdz = Field(@at (Center, Center, Face) ∂z(b))
 ω_x = Field(∂y(w) - ∂z(v))
 PV = Field(ErtelPotentialVorticity(model))
 
-outputs_vid = (; u, v, w, b, dbdz, ω_x, PV)
+outputs_vid = (; u, v, w, b, dbdz, ω_x, PV, νₑ, κₑ)
 
 simulation.output_writers[:vid_writer] =
     NetCDFOutputWriter(model, outputs_vid,

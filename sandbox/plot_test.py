@@ -5,9 +5,13 @@ import pynanigans as pn
 from dask.diagnostics import ProgressBar
 
 #++++
-var = "ω_x"
-fname = "vid.csi_SMA.nc"
+var = "νₑ"
+fname = "vid.csi_AMD3.nc"
 sufix = fname.replace(".nc","").replace("vid.", "")
+
+lim = 4e-3
+vmin = 0
+vmax = +lim
 #----
 
 #+++++ Open and rechunk
@@ -16,7 +20,7 @@ vid = vid.chunk(dict(time=1))
 #----
 
 da = vid[var].pnisel(x=0)
-mov = Movie(da)
+mov = Movie(da, vmin=vmin, vmax=vmax)
 with ProgressBar():
     mov.save(f"{var}_{sufix}.mp4", 
              parallel=True, 
