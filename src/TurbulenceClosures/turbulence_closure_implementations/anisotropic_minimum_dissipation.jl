@@ -140,6 +140,7 @@ function AnisotropicMinimumDissipation(FT = Float64;
     
     !isnothing(Cb) && @warn "AnisotropicMinimumDissipation with buoyancy modification is unvalidated."
     !isnothing(Cn) && @warn "Cn is being activated!"
+    !isnothing(Pr) && @warn "Pr is being imposed!"
 
     return AnisotropicMinimumDissipation{TD, FT}(Cν, Cκ, Cb, Cn, ν, κ, Pr)
 end
@@ -201,19 +202,25 @@ end
 
     ijk = (i, j, k, grid)
 
-    @inbounds κ = closure.κ[tracer_index]
-    @inbounds Cκ = closure.Cκ[tracer_index]
+    if isnothing(closure.Pr)
+        @inbounds κ = closure.κ[tracer_index]
+        @inbounds Cκ = closure.Cκ[tracer_index]
 
-    σ =  norm_θᵢ²ᶜᶜᶜ(i, j, k, grid, c)
+        σ =  norm_θᵢ²ᶜᶜᶜ(i, j, k, grid, c)
 
-    if σ == 0 # denominator is zero: short-circuit computations and set subfilter diffusivity to zero.
-        κˢᵍˢ = zero(FT)
+        if σ == 0 # denominator is zero: short-circuit computations and set subfilter diffusivity to zero.
+            κˢᵍˢ = zero(FT)
+        else
+            ϑ =  norm_uᵢⱼ_cⱼ_cᵢᶜᶜᶜ(ijk..., closure, U.u, U.v, U.w, c)
+            κˢᵍˢ = - Cᴾᵒⁱⁿ(i, j, k, grid, Cκ) * δ²(ijk..., closure.Cn, buoyancy, U.w, C) * ϑ / σ
+        end
+
+        return max(zero(FT), κˢᵍˢ) + κ
+
     else
-        ϑ =  norm_uᵢⱼ_cⱼ_cᵢᶜᶜᶜ(ijk..., closure, U.u, U.v, U.w, c)
-        κˢᵍˢ = - Cᴾᵒⁱⁿ(i, j, k, grid, Cκ) * δ²(ijk..., closure.Cn, buoyancy, U.w, C) * ϑ / σ
+        return νᶜᶜᶜ(i, j, k, grid, closure, buoyancy, U, C) / closure.Pr
     end
 
-    return max(zero(FT), κˢᵍˢ) + κ
 end
 
 function calculate_diffusivities!(diffusivity_fields, closure::AnisotropicMinimumDissipation, model)
