@@ -138,15 +138,15 @@ end
 @inline Cᴾᵒⁱⁿ(i, j, k, grid, C::Function) = C(xnode(Center(), i, grid), ynode(Center(), j, grid), znode(Center(), k, grid))
 
 
-@inline function δ²(i, j, k, grid, Cn::Nothing, buoyancy, w, C)
+@inline function δ²(i, j, k, grid, Cn::Nothing, buoyancy, w, buoyancy_field)
     ijk = (i, j, k, grid)
     return 3 / (1 / Δᶠxᶜᶜᶜ(ijk...)^2 + 1 / Δᶠyᶜᶜᶜ(ijk...)^2 + 1 / Δᶠzᶜᶜᶜ(ijk...)^2)
 end
 
 @inline Δᶠₙ²(i, j, k, grid, dbdz, w) = (w[i,j,k]^2 + 1e-9) / dbdz
-@inline function δ²(i, j, k, grid::AbstractGrid{FT}, Cn::Number, buoyancy, w, C) where FT
+@inline function δ²(i, j, k, grid::AbstractGrid{FT}, Cn::Number, buoyancy, w, buoyancy_field) where FT
     ijk = (i, j, k, grid)
-    dbdz = ℑzᵃᵃᶜ(ijk..., ∂zᵃᵃᶠ, buoyancy_perturbation, buoyancy.model, C)
+    dbdz = ℑzᵃᵃᶜ(ijk..., ∂zᶜᶜᶠ, buoyancy_perturbation, buoyancy.model, buoyancy_field)
     return 3 / (1 / Δᶠxᶜᶜᶜ(ijk...)^2 + 
                 1 / Δᶠyᶜᶜᶜ(ijk...)^2 + 
                 1 / Δᶠzᶜᶜᶜ(ijk...)^2 + 
@@ -167,15 +167,14 @@ end
         r = norm_uᵢₐ_uⱼₐ_Σᵢⱼᶜᶜᶜ(ijk..., closure, U.u, U.v, U.w)
 
         # So-called buoyancy modification term:
-        Cb_ζ = Cb_norm_wᵢ_bᵢᶜᶜᶜ(ijk..., Cb, closure, buoyancy, U.w, C) / Δᶠzᶜᶜᶜ(ijk...)
-
-        νˢᵍˢ = - Cᴾᵒⁱⁿ(i, j, k, grid, closure.Cν) * δ²(ijk..., Cn, buoyancy, U.w, C) * (r - Cb_ζ) / q
+        Cb_ζ = Cb_norm_wᵢ_bᵢᶜᶜᶜ(ijk..., Cb, closure, buoyancy, U.w, C) / Δᶠzᶜᶜᶜ(ijk...) # C here is any tracer, but it really should be just the buoyancy
+        νˢᵍˢ = - Cᴾᵒⁱⁿ(i, j, k, grid, closure.Cν) * δ²(ijk..., Cn, buoyancy, U.w, (b=C,)) * (r - Cb_ζ) / q
     end
 
     return max(zero(FT), νˢᵍˢ)
 end
 
-@inline function calc_κᶜᶜᶜ(i, j, k, grid, closure::AMD, c, ::Val{tracer_index}, U) where {tracer_index}
+@inline function calc_κᶜᶜᶜ(i, j, k, grid, closure::AMD, buoyancy, c, ::Val{tracer_index}, U) where {tracer_index}
 
     FT = eltype(grid)
     ijk = (i, j, k, grid)
@@ -187,8 +186,8 @@ end
     if σ == 0 # denominator is zero: short-circuit computations and set subfilter diffusivity to zero.
         κˢᵍˢ = zero(FT)
     else
-        ϑ =  norm_uᵢⱼ_cⱼ_cᵢᶜᶜᶜ(ijk..., closure, U.u, U.v, U.w, c)
-        κˢᵍˢ = - Cᴾᵒⁱⁿ(i, j, k, grid, Cκ) * δ²(ijk..., closure.Cn, buoyancy, U.w, C) * ϑ / σ
+        ϑ =  norm_uᵢⱼ_cⱼ_cᵢᶜᶜᶜ(ijk..., closure, U.u, U.v, U.w, c) # C here is any tracer, but it really should be just the buoyancy
+        κˢᵍˢ = - Cᴾᵒⁱⁿ(i, j, k, grid, Cκ) * δ²(ijk..., closure.Cn, buoyancy, U.w, (b=c,)) * ϑ / σ
     end
 
     return max(zero(FT), κˢᵍˢ)
@@ -212,7 +211,8 @@ function calculate_diffusivities!(diffusivity_fields, closure::AnisotropicMinimu
 
     for (tracer_index, κₑ) in enumerate(diffusivity_fields.κₑ)
         @inbounds c = tracers[tracer_index]
-        event = diffusivity_kernel!(κₑ, grid, closure, buoyancy, c, Val(tracer_index), velocities, tracers, dependencies=barrier)
+        event = diffusivity_kernel!(κₑ, grid, closure, buoyancy, c, Val(tracer_index), velocities, dependencies=barrier)
+        #event = diffusivity_kernel!(κₑ, grid, closure, buoyancy, c, Val(tracer_index), velocities, tracers, dependencies=barrier)
         push!(events, event)
     end
 

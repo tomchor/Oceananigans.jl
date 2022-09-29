@@ -37,7 +37,7 @@ end
     @inbounds νₑ[i, j, k] = calc_νᶜᶜᶜ(i, j, k, grid, closure, args...)
 end
 
-@kernel function calculate_nonlinear_tracer_diffusivity!(κₑ, grid, closure, c, tracer_index, U)
+@kernel function calculate_nonlinear_tracer_diffusivity!(κₑ, grid, closure, buoyancy, c, tracer_index, U)
     i, j, k = @index(Global, NTuple)
-    @inbounds κₑ[i, j, k] = calc_κᶜᶜᶜ(i, j, k, grid, closure, c, tracer_index, U)
+    @inbounds κₑ[i, j, k] = calc_κᶜᶜᶜ(i, j, k, grid, closure, buoyancy, c, tracer_index, U)
 end
