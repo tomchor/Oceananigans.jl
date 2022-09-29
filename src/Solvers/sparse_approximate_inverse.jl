@@ -55,10 +55,9 @@ sparse_approximate_inverse(A::AbstractMatrix; ε, nzrel)
 returns M ≈ A⁻¹ where `|| AM - I ||` ≈ ε and `nnz(M) ≈ nnz(A) * nzrel`
 
 if we choose a sufficiently large `nzrel` (`nzrel = size(A, 1)` for example), then
+`sparse_approximate_inverse(A, 0.0, nzrel) = A⁻¹ ± machine_precision`
 
-sparse_approximate_inverse(A, 0.0, nzrel) = A⁻¹ ± machine_precision
 """
-
 function sparse_approximate_inverse(A::AbstractMatrix; ε::Float64, nzrel)
    
     FT = eltype(A)
@@ -70,10 +69,10 @@ function sparse_approximate_inverse(A::AbstractMatrix; ε::Float64, nzrel)
     J  = Int64[1]
 
     iterator = SpaiIterator(e, e, r, J, J, J, J, Q, Q)
+
     # this loop can be parallelized!
-    for j = 1 : n 
-      
-        @show j
+    for j = 1:n 
+        @show j, n
         # maximum number of elements in a column
         ncolmax = nzrel * nnz(A[:, j])
 
@@ -82,6 +81,7 @@ function sparse_approximate_inverse(A::AbstractMatrix; ε::Float64, nzrel)
         mj[iterator.J] = iterator.mhat
         M[:, j]        = mj
     end
+
     return M
 end
 
@@ -114,7 +114,6 @@ function set_j_column!(iterator, A, j, ε, ncolmax, n, FT)
                 calc_residuals!(iterator, A)
                 iterator.J̃ = setdiff(iterator.r.nzind, iterator.J)
                 # select_residuals!(iterator, A, n, FT)
-
             end
         end
     end

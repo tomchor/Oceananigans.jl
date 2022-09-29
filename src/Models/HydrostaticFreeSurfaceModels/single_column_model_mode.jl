@@ -29,9 +29,11 @@ const SingleColumnGrid = AbstractGrid{<:AbstractFloat, <:Flat, <:Flat, <:Bounded
 ##### Model constructor utils
 #####
 
-PressureField(::SingleColumnGrid) = (; pHY′ = nothing)
-FreeSurface(free_surface::ExplicitFreeSurface{Nothing}, velocities, ::SingleColumnGrid) = nothing
-FreeSurface(free_surface::ImplicitFreeSurface{Nothing}, velocities, ::SingleColumnGrid) = nothing
+PressureField(arch, ::SingleColumnGrid) = (pHY′ = nothing,)
+FreeSurface(free_surface::ExplicitFreeSurface{Nothing}, velocities,                 ::SingleColumnGrid) = nothing
+FreeSurface(free_surface::ImplicitFreeSurface{Nothing}, velocities,                 ::SingleColumnGrid) = nothing
+FreeSurface(free_surface::ExplicitFreeSurface{Nothing}, ::PrescribedVelocityFields, ::SingleColumnGrid) = nothing
+FreeSurface(free_surface::ImplicitFreeSurface{Nothing}, ::PrescribedVelocityFields, ::SingleColumnGrid) = nothing
 
 validate_momentum_advection(momentum_advection, ::SingleColumnGrid) = nothing
 validate_tracer_advection(tracer_advection::AbstractAdvectionScheme, ::SingleColumnGrid) = nothing, NamedTuple()
@@ -47,7 +49,7 @@ calculate_free_surface_tendency!(::SingleColumnGrid, args...) = NoneEvent()
 
 function update_state!(model::HydrostaticFreeSurfaceModel, grid::SingleColumnGrid)
 
-    fill_halo_regions!(prognostic_fields(model), model.architecture, model.clock, fields(model))
+    fill_halo_regions!(prognostic_fields(model), model.clock, fields(model))
 
     compute_auxiliary_fields!(model.auxiliary_fields)
 
@@ -55,7 +57,6 @@ function update_state!(model::HydrostaticFreeSurfaceModel, grid::SingleColumnGri
     calculate_diffusivities!(model.diffusivity_fields, model.closure, model)
 
     fill_halo_regions!(model.diffusivity_fields,
-                       model.architecture,
                        model.clock,
                        fields(model))
 

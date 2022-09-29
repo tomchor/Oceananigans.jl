@@ -28,9 +28,11 @@ z₀ = -0.5 * ones(n_particles);
 lagrangian_particles = LagrangianParticles(x=x₀, y=y₀, z=z₀)
 
 # output
-10 Lagrangian particles with
+10 LagrangianParticles with eltype Particle:
 ├── 3 properties: (:x, :y, :z)
-└── 0 tracked fields: ()
+├── particle-wall restitution coefficient: 1.0
+├── 0 tracked fields: ()
+└── dynamics: no_dynamics
 ```
 
 then pass it to a model constructor
@@ -39,13 +41,14 @@ then pass it to a model constructor
 model = NonhydrostaticModel(grid=grid, particles=lagrangian_particles)
 
 # output
-NonhydrostaticModel{CPU, Float64}(time = 0 seconds, iteration = 0)
-├── grid: RectilinearGrid{Float64, Periodic, Periodic, Bounded}(Nx=10, Ny=10, Nz=10)
+NonhydrostaticModel{CPU, RectilinearGrid}(time = 0 seconds, iteration = 0)
+├── grid: 10×10×10 RectilinearGrid{Float64, Periodic, Periodic, Bounded} on CPU with 3×3×3 halo
+├── timestepper: QuasiAdamsBashforth2TimeStepper
 ├── tracers: ()
 ├── closure: Nothing
 ├── buoyancy: Nothing
 ├── coriolis: Nothing
-└── particles: 10 Lagrangian particles with 3 properties: (:x, :y, :z)
+└── particles: 10 LagrangianParticles with eltype Particle and properties (:x, :y, :z)
 ```
 
 !!! warn "Lagrangian particles on GPUs"
@@ -86,9 +89,11 @@ particles = StructArray{LagrangianMicrobe}((x₀, y₀, z₀, species, dna));
 lagrangian_particles = LagrangianParticles(particles)
 
 # output
-3 Lagrangian particles with
+3 LagrangianParticles with eltype LagrangianMicrobe:
 ├── 5 properties: (:x, :y, :z, :species, :dna)
-└── 0 tracked fields: ()
+├── particle-wall restitution coefficient: 1.0
+├── 0 tracked fields: ()
+└── dynamics: no_dynamics
 ```
 
 !!! warn "Custom properties on GPUs"

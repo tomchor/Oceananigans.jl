@@ -35,7 +35,7 @@ function setup_simulation(N, advection_scheme)
                grid = grid,
         timestepper = :RungeKutta3,
           advection = advection_scheme,
-            closure = IsotropicDiffusivity(ν=0, κ=0)
+            closure = ScalarDiffusivity(ν=0, κ=0)
     )
 
     x₀, z₀ = L/2, -L/2
@@ -69,7 +69,7 @@ function print_progress(simulation)
                    progress, i, t, u_max, w_max, T_min, T_max, CFL)
 end
 
-schemes = (WENO5(), CenteredFourthOrder())
+schemes = (WENO(), CenteredFourthOrder())
 Ns = (32, 128)
 
 for scheme in schemes, N in Ns

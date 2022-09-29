@@ -1,3 +1,8 @@
+include("dependencies_for_runtests.jl")
+
+using Oceananigans.BoundaryConditions: ImpenetrableBoundaryCondition
+using Oceananigans.Fields: Field
+
 """ Take one time step with three forcing functions on u, v, w. """
 function time_step_with_forcing_functions(arch)
     @inline Fu(x, y, z, t) = exp(π * z)
@@ -55,11 +60,12 @@ end
 """ Take one time step with a Forcing forcing function with parameters. """
 function time_step_with_single_field_dependent_forcing(arch, fld)
 
-    forcing = NamedTuple{(fld,)}((Forcing((x, y, z, t, u) -> -u, field_dependencies=:u),))
+    forcing = NamedTuple{(fld,)}((Forcing((x, y, z, t, fld) -> -fld, field_dependencies=fld),))
 
     grid = RectilinearGrid(arch, size=(1, 1, 1), extent=(1, 1, 1))
+    A = Field{Center, Center, Center}(grid)
     model = NonhydrostaticModel(grid=grid, forcing=forcing,
-                                buoyancy=SeawaterBuoyancy(), tracers=(:T, :S))
+                                buoyancy=SeawaterBuoyancy(), tracers=(:T, :S), auxiliary_fields=(; A))
     time_step!(model, 1, euler=true)
 
     return true
@@ -68,16 +74,16 @@ end
 """ Take one time step with a Forcing forcing function with parameters. """
 function time_step_with_multiple_field_dependent_forcing(arch)
 
-    u_forcing = Forcing((x, y, z, t, v, w, T) -> sin(v) * exp(w) * T, field_dependencies=(:v, :w, :T))
+    u_forcing = Forcing((x, y, z, t, v, w, T, A) -> sin(v) * exp(w) * T *A, field_dependencies=(:v, :w, :T, :A))
 
     grid = RectilinearGrid(arch, size=(1, 1, 1), extent=(1, 1, 1))
+    A = Field{Center, Center, Center}(grid)
     model = NonhydrostaticModel(grid=grid, forcing=(u=u_forcing,),
-                                buoyancy=SeawaterBuoyancy(), tracers=(:T, :S))
+                                buoyancy=SeawaterBuoyancy(), tracers=(:T, :S), auxiliary_fields = (; A))
     time_step!(model, 1, euler=true)
 
     return true
 end
-
 
 
 """ Take one time step with a Forcing forcing function with parameters. """
@@ -109,29 +115,48 @@ function relaxed_time_stepping(arch)
     return true
 end
 
+function advective_and_multiple_forcing(arch)
+    grid = RectilinearGrid(arch, size=(2, 2, 3), extent=(1, 1, 1), halo=(4, 4, 4))
+
+    constant_slip = AdvectiveForcing(UpwindBiasedFifthOrder(), w=1)
+
+    no_penetration = ImpenetrableBoundaryCondition()
+    slip_bcs = FieldBoundaryConditions(grid, (Center, Center, Face), top=no_penetration, bottom=no_penetration)
+    slip_velocity = ZFaceField(grid, boundary_conditions=slip_bcs)
+    velocity_field_slip = AdvectiveForcing(CenteredSecondOrder(), w=slip_velocity)
+    simple_forcing(x, y, z, t) = 1
+
+    model = NonhydrostaticModel(; grid, tracers=(:a, :b), forcing=(a=constant_slip, b=(simple_forcing, velocity_field_slip)))
+    time_step!(model, 1, euler=true)
+
+    return true
+end
+
+
 @testset "Forcings" begin
     @info "Testing forcings..."
 
     for arch in archs
-        @testset "Forcing function time stepping [$(typeof(arch))]" begin
-            @info "  Testing forcing function time stepping [$(typeof(arch))]..."
+        A = typeof(arch)
+        @testset "Forcing function time stepping [$A]" begin
+            @info "  Testing forcing function time stepping [$A]..."
 
-            @testset "Non-parameterized forcing functions [$(typeof(arch))]" begin
-                @info "      Testing non-parameterized forcing functions [$(typeof(arch))]..."
+            @testset "Non-parameterized forcing functions [$A]" begin
+                @info "      Testing non-parameterized forcing functions [$A]..."
                 @test time_step_with_forcing_functions(arch)
                 @test time_step_with_discrete_forcing(arch)
             end
 
-            @testset "Parameterized forcing functions [$(typeof(arch))]" begin
-                @info "      Testing parameterized forcing functions [$(typeof(arch))]..."
+            @testset "Parameterized forcing functions [$A]" begin
+                @info "      Testing parameterized forcing functions [$A]..."
                 @test time_step_with_parameterized_continuous_forcing(arch)
                 @test time_step_with_parameterized_discrete_forcing(arch)
             end
 
-            @testset "Field-dependent forcing functions [$(typeof(arch))]" begin
-                @info "      Testing field-dependent forcing functions [$(typeof(arch))]..."
+            @testset "Field-dependent forcing functions [$A]" begin
+                @info "      Testing field-dependent forcing functions [$A]..."
 
-                for fld in (:u, :v, :w, :T)
+                for fld in (:u, :v, :w, :T, :A)
                     @test time_step_with_single_field_dependent_forcing(arch, fld)
                 end
 
@@ -139,9 +164,14 @@ end
                 @test time_step_with_parameterized_field_dependent_forcing(arch)
             end 
 
-            @testset "Relaxation forcing functions [$(typeof(arch))]" begin
-                @info "      Testing relaxation forcing functions [$(typeof(arch))]..."
+            @testset "Relaxation forcing functions [$A]" begin
+                @info "      Testing relaxation forcing functions [$A]..."
                 @test relaxed_time_stepping(arch)
+            end
+
+            @testset "Advective and multiple forcing [$A]" begin
+                @info "      Testing advective and multiple forcing [$A]..."
+                @test advective_and_multiple_forcing(arch)
             end
         end
     end

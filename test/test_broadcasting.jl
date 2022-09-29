@@ -1,3 +1,5 @@
+include("dependencies_for_runtests.jl")
+
 @testset "Field broadcasting" begin
     @info "  Testing broadcasting with fields..."
 
@@ -24,7 +26,7 @@
         @test all(c .== 4)
 
         # Halo regions
-        fill_halo_regions!(c, arch) # Does not happen by default in broadcasting now
+        fill_halo_regions!(c) # Does not happen by default in broadcasting now
         @test c[1, 1, 0] == 4
         @test c[1, 1, Nz+1] == 4
 
@@ -40,7 +42,7 @@
         b2 = ZFaceField(three_point_grid, boundary_conditions=b2_bcs)
 
         b2 .= 1
-        fill_halo_regions!(b2, arch) # sets b2[1, 1, 1] = b[1, 1, 4] = 0
+        fill_halo_regions!(b2) # sets b2[1, 1, 1] = b[1, 1, 4] = 0
 
         @test b2[1, 1, 1] == 0
         @test b2[1, 1, 2] == 1
@@ -61,18 +63,32 @@
         ##### Broadcasting with ReducedField
         #####
         
-        r, p, q = [Field{Center, Center, Nothing}(grid) for i = 1:3]
+        for loc in [
+                    (Nothing, Center, Center),
+                    (Center, Nothing, Center),
+                    (Center, Center, Nothing),
+                    (Center, Nothing, Nothing),
+                    (Nothing, Center, Nothing),
+                    (Nothing, Nothing, Center),
+                    (Nothing, Nothing, Nothing),
+                   ]
 
-        r .= 2 
-        @test all(r .== 2) 
+            @info "    Testing broadcasting to location $loc..."
 
-        p .= 3 
+            r, p, q = [Field(loc, grid) for i = 1:3]
 
-        q .= r .* p
-        @test all(q .== 6) 
+            r .= 2 
+            @test all(r .== 2) 
 
-        q .= r .* p .+ 1
-        @test all(q .== 7) 
+            p .= 3 
+
+            q .= r .* p
+            @test all(q .== 6) 
+
+            q .= r .* p .+ 1
+            @test all(q .== 7) 
+        end
+
 
         #####
         ##### Broadcasting with arrays

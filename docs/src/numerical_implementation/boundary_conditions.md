@@ -3,7 +3,16 @@
 We adopt a mixed approach for implementing boundary conditions that uses both halo regions and "direct"
 imposition of boundary conditions, depending on the condition prescribed.
 
-We illustrate how boundary conditions are implemented by considering the tracer equation \eqref{eq:tracer}.
+We illustrate how boundary conditions are implemented by considering the tracer equation
+```math
+    \begin{align}
+    \partial_t c = - \boldsymbol{v} \boldsymbol{\cdot} \boldsymbol{\nabla} c
+                   - \boldsymbol{\nabla} \boldsymbol{\cdot} \boldsymbol{q}_c
+                   + F_c \, ,
+    \label{eq:tracer}
+    \end{align}
+```
+where ``\boldsymbol{q}_c`` is the diffusive flux of ``c`` and ``F_c`` is an arbitrary source term.
 
 See [Model setup: boundary conditions](@ref model_step_bcs) for how to create and use these
 boundary conditions in Oceananigans.
@@ -72,7 +81,8 @@ volume yields
 ```math
     \begin{equation}
     \label{eq:dc/dt}
-    \partial_t c_{i, j, k} = - \frac{1}{V_{i, j, k}} \oint_{\partial \Omega_{i, j, k}} (\boldsymbol{v} c + \boldsymbol{q}_c) \, \mathrm{d} S
+    \partial_t c_{i, j, k} = - \frac{1}{V_{i, j, k}} \oint_{\partial \Omega_{i, j, k}} (\boldsymbol{v} c + \boldsymbol{q}_c) 
+                                                     \boldsymbol{\cdot} \hat{\boldsymbol{n}}  \, \mathrm{d} S
                              + \frac{1}{V_{i, j, k}} \int_{V_{i, j, k}} F_c \, \mathrm{d} V \, ,
     \end{equation}
 ```

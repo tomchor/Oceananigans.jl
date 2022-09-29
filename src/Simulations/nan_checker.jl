@@ -1,4 +1,5 @@
 using Oceananigans.Models: AbstractModel
+using Oceananigans.Utils: prettykeys
 
 mutable struct NaNChecker{F}
     fields :: F
@@ -6,6 +7,17 @@ mutable struct NaNChecker{F}
 end
 
 NaNChecker(fields) = NaNChecker(fields, false) # default
+
+function Base.summary(nc::NaNChecker)
+    fieldnames = prettykeys(nc.fields)
+    if nc.erroring
+        return "Erroring NaNChecker for $fieldnames"
+    else
+        return "NaNChecker for $fieldnames"
+    end
+end
+
+Base.show(io, nc::NaNChecker) = print(io, summary(nc))
 
 """
     NaNChecker(; fields, erroring=false)
@@ -25,12 +37,14 @@ function (nc::NaNChecker)(simulation)
     for (name, field) in pairs(nc.fields)
         if hasnan(field)
             simulation.running = false
+            clock = simulation.model.clock
+            t = time(simulation)
+            iter = iteration(simulation)
 
             if nc.erroring
-                clock = simulation.model.clock
-                error("time = $(clock.time), iteration = $(clock.iteration): NaN found in field $name. Aborting simulation.")
+                error("time = $t, iteration = $iter: NaN found in field $name. Aborting simulation.")
             else
-                @info "NaN found in field $name. Stopping simulation."
+                @info "time = $t, iteration = $iter: NaN found in field $name. Stopping simulation."
             end
         end
     end
@@ -46,3 +60,4 @@ function erroring_NaNChecker!(simulation)
     simulation.callbacks[:nan_checker].func.erroring = true
     return nothing
 end
+

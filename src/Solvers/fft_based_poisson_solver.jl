@@ -1,5 +1,4 @@
 using Oceananigans.Architectures: device_event
-using Oceananigans: short_show
 
 import Oceananigans.Architectures: architecture
 
@@ -24,13 +23,30 @@ end
 
 Base.show(io::IO, solver::FFTBasedPoissonSolver) =
 print(io, "FFTBasedPoissonSolver on ", string(typeof(architecture(solver))), ": \n",
-          "├── grid: $(short_show(solver.grid))\n",
+          "├── grid: $(summary(solver.grid))\n",
           "├── storage: $(typeof(solver.storage))\n",
           "├── buffer: $(typeof(solver.buffer))\n",
           "└── transforms:\n",
           "    ├── forward: ", transform_list_str(solver.transforms.forward), "\n",
           "    └── backward: ", transform_list_str(solver.transforms.backward))
 
+"""
+    FFTBasedPoissonSolver(grid, planner_flag=FFTW.PATIENT)
+
+Return an `FFTBasedPoissonSolver` that solves the "generalized" Poisson equation,
+
+```math
+(∇² + m) ϕ = b,
+```
+
+where ``m`` is a number, using a eigenfunction expansion of the discrete Poisson operator
+on a staggered grid and for periodic or Neumann boundary conditions.
+
+In-place transforms are applied to ``b``, which means ``b`` must have complex-valued
+elements (typically the same type as `solver.storage`).
+
+See [`solve!`](@ref) for more information about the FFT-based Poisson solver algorithm.
+"""
 function FFTBasedPoissonSolver(grid, planner_flag=FFTW.PATIENT)
     topo = (TX, TY, TZ) =  topology(grid)
 
@@ -40,11 +56,9 @@ function FFTBasedPoissonSolver(grid, planner_flag=FFTW.PATIENT)
 
     arch = architecture(grid)
 
-    eigenvalues = (
-        λx = arch_array(arch, λx),
-        λy = arch_array(arch, λy),
-        λz = arch_array(arch, λz)
-    )
+    eigenvalues = (λx = arch_array(arch, λx),
+                   λy = arch_array(arch, λy),
+                   λz = arch_array(arch, λz))
 
     storage = arch_array(arch, zeros(complex(eltype(grid)), size(grid)...))
 
@@ -72,8 +86,9 @@ on a staggered grid and for periodic or Neumann boundary conditions.
 In-place transforms are applied to ``b``, which means ``b`` must have complex-valued
 elements (typically the same type as `solver.storage`).
 
-Note: ``(∇² + m) ϕ = b`` is sometimes called the "screened Poisson" equation
-when ``m < 0``, or the Helmholtz equation when ``m > 0``.
+!!! info "Alternative names for 'generalized' Poisson equation"
+    Equation ``(∇² + m) ϕ = b`` is sometimes referred to as the "screened Poisson" equation
+    when ``m < 0``, or the Helmholtz equation when ``m > 0``.
 """
 function solve!(ϕ, solver::FFTBasedPoissonSolver, b, m=0)
     arch = architecture(solver)

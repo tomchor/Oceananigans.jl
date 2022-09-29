@@ -16,7 +16,7 @@
 
 # ```julia
 # using Pkg
-# pkg"add Oceananigans, JLD2, Plots"
+# pkg"add Oceananigans, CairoMakie"
 # ```
 
 # ## Using `Oceananigans.jl`
@@ -29,45 +29,36 @@ using Oceananigans
 #
 # ## Instantiating and configuring a model
 #
-# A core Oceananigans type is `NonhydrostaticModel`. We build an `NonhydrostaticModel`
+# A core Oceananigans type is `NonhydrostaticModel`. We build a `NonhydrostaticModel`
 # by passing it a `grid`, plus information about the equations we would like to solve.
 #
-# Below, we build a regular rectilinear grid with 128 grid points in the `z`-direction,
-# where `z` spans from `z = -0.5` to `z = 0.5`,
+# Below, we build a rectilinear grid with 128 regularly-spaced grid points in
+# the `z`-direction, where `z` spans from `z = -0.5` to `z = 0.5`,
 
 grid = RectilinearGrid(size=128, z=(-0.5, 0.5), topology=(Flat, Flat, Bounded))
 
-# The default topology is `(Periodic, Periodic, Bounded)` but since we only want to solve
-# a one-dimensional problem, we assign the `x` and `y` dimensions to `Flat`.  
-# We could specify each of them to be either `Periodic` or `Bounded` but that will define
-# a halo in each of those directions, and that is numerically more costly.  
-# Note that we only specify the extent and size for the `Bounded` dimension.
+# The default topology is `(Periodic, Periodic, Bounded)`. In this example, we're
+# trying to solve a one-dimensional problem, so we assign `Flat` to the
+# `x` and `y` topologies. We excise halos and avoid interpolation or differencing
+# in `Flat` directions, saving computation and memory.
 #
-# We next specify a model with an `IsotropicDiffusivity`, which models either
+# We next specify a model with an `ScalarDiffusivity`, which models either
 # molecular or turbulent diffusion,
 
-closure = IsotropicDiffusivity(κ=1.0)
+closure = ScalarDiffusivity(κ=1)
 
 # We finally pass these two ingredients to `NonhydrostaticModel`,
 
-model = NonhydrostaticModel(grid=grid, closure=closure, buoyancy=nothing, tracers=:T)
+model = NonhydrostaticModel(; grid, closure, tracers=:T)
 
-# Our simple `grid` and `model` use a number of defaults:
-#
-#   * The default `grid` topology is periodic in `x, y` and bounded in `z`.
-#   * The default `Model` has no-flux (insulating and stress-free) boundary conditions on
-#     non-periodic boundaries for velocities `u, v, w` and tracers.
-#   * The default `Model` has two tracers: temperature `T`, and salinity `S`.
-#   * The default `Model` uses a `SeawaterBuoyancy` model with a `LinearEquationOfState`.
-#     However, buoyancy is not active in the simulation we run below.
+# By default, `NonhydrostaticModel` has no-flux (insulating and stress-free) boundary conditions on
+# all fields.
 #
 # Next, we `set!` an initial condition on the temperature field,
 # `model.tracers.T`. Our objective is to observe the diffusion of a Gaussian.
 
 width = 0.1
-
 initial_temperature(x, y, z) = exp(-z^2 / (2width^2))
-
 set!(model, T=initial_temperature)
 
 # ## Visualizing model data
@@ -76,21 +67,22 @@ set!(model, T=initial_temperature)
 # which was initialized as `0`'s when the model was created.
 # To see the new data in `model.tracers.T`, we plot it:
 
-using Plots
+using CairoMakie
+set_theme!(Theme(fontsize = 24, linewidth=3))
+
+fig = Figure()
+axis = (xlabel = "Temperature (ᵒC)", ylabel = "z")
+label = "t = 0"
 
 z = znodes(model.tracers.T)
+T = interior(model.tracers.T, 1, 1, :)
 
-T_plot = plot(interior(model.tracers.T)[1, 1, :], z,
-              linewidth = 2,
-              label = "t = 0",
-              xlabel = "Temperature (ᵒC)",
-              ylabel = "z")
+lines(T, z; label, axis)
+current_figure() # hide
 
-# The function `interior` above extracts a `view` of the physical interior points
-# of `model.tracers.T`. This is useful because `model.tracers.T` also contains "halo" points
-# that lie outside the physical domain (halo points are used to set boundary conditions
-# during time-stepping).
-
+# The function `interior` above extracts a `view` of `model.tracers.T` over the
+# physical points (excluding halos) at `(1, 1, :)`.
+#
 # ## Running a `Simulation`
 #
 # Next we set-up a `Simulation` that time-steps the model forward and manages output.
@@ -111,41 +103,56 @@ run!(simulation)
 
 using Printf
 
-plot!(T_plot, interior(model.tracers.T)[1, 1, :], z, linewidth=2,
-      label=@sprintf("t = %.3f", model.clock.time))
+label = @sprintf("t = %.3f", model.clock.time)
+lines!(interior(model.tracers.T, 1, 1, :), z; label)
+axislegend()
+current_figure() # hide
 
 # Very interesting! Next, we run the simulation a bit longer and make an animation.
 # For this, we use the `JLD2OutputWriter` to write data to disk as the simulation progresses.
 
-using Oceananigans.OutputWriters: JLD2OutputWriter, IterationInterval
-
 simulation.output_writers[:temperature] =
-    JLD2OutputWriter(model, model.tracers, prefix = "one_dimensional_diffusion",
-                     schedule=IterationInterval(100), force = true)
+    JLD2OutputWriter(model, model.tracers,
+                     filename = "one_dimensional_diffusion.jld2",
+                     schedule=IterationInterval(100),
+                     overwrite_existing = true)
 
 # We run the simulation for 10,000 more iterations,
 
 simulation.stop_iteration += 10000
-
 run!(simulation)
 
 # Finally, we animate the results by opening the JLD2 file, extract the
 # iterations we ended up saving at, and plot the evolution of the
 # temperature profile in a loop over the iterations.
 
-using JLD2
+T_timeseries = FieldTimeSeries("one_dimensional_diffusion.jld2", "T")
+times = T_timeseries.times
 
-file = jldopen(simulation.output_writers[:temperature].filepath)
+fig = Figure()
+ax = Axis(fig[2, 1]; xlabel = "Temperature (ᵒC)", ylabel = "z")
+xlims!(ax, 0, 1)
 
-iterations = parse.(Int, keys(file["timeseries/t"]))
+n = Observable(1)
 
-anim = @animate for (i, iter) in enumerate(iterations)
+T = @lift interior(T_timeseries[$n], 1, 1, :)
+lines!(T, z)
 
-    T = file["timeseries/T/$iter"][1, 1, :]
-    t = file["timeseries/t/$iter"]
+label = @lift "t = " * string(round(times[$n], digits=3))
+Label(fig[1, 1], label, tellwidth=false)
+current_figure() # hide
 
-    plot(T, z, linewidth=2, title=@sprintf("t = %.3f", t),
-         label="", xlabel="Temperature", ylabel="z", xlims=(0, 1))
+# Finally, we record a movie.
+
+frames = 1:length(times)
+
+@info "Making an animation..."
+
+record(fig, "one_dimensional_diffusion.mp4", frames, framerate=24) do i
+    msg = string("Plotting frame ", i, " of ", frames[end])
+    print(msg * " \r")
+    n[] = i
 end
+nothing #hide
 
-mp4(anim, "one_dimensional_diffusion.mp4", fps = 15) # hide
+# ![](one_dimensional_diffusion.mp4)

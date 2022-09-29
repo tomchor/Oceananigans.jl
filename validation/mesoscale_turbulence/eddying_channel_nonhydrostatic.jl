@@ -31,7 +31,7 @@ const Lz = 2985
 maxΔt = 300.0
 
 end_time = 60day 
-advection   = WENO5()
+advection   = WENO()
 timestepper = :RungeKutta3
 # Rough target resolution
 Δx = Δy = 5kilometer # 5km
@@ -58,7 +58,7 @@ cᵖ = 3994.0   # [J/K]  heat capacity
 ρ  = 999.8    # [kg/m³] density
 const h = 1000.0     # [m] e-folding length scale for northern sponge
 const ΔB = 8 * α * g # [m/s²] total change in buoyancy from surface to bottom
-eos = LinearEquationOfState(FT, α=α, β=0)
+eos = LinearEquationOfState(FT, thermal_expansion=α, haline_contraction=0)
 buoyancy = BuoyancyTracer()
 
 κh = 0.5e-5 # [m²/s] horizontal diffusivity
@@ -66,9 +66,10 @@ buoyancy = BuoyancyTracer()
 κv = 0.5e-5 # [m²/s] vertical diffusivity
 νv = 3e-4   # [m²/s] vertical viscocity
 
-diffusive_closure = AnisotropicDiffusivity(νx = νh, νy = νh, νz =νv, 
-                                 κx = κh, κy = κh, κz=κv)
+vertical_closure = VerticalScalarDiffusivity(ν = νv, κ = κv)
 
+horizontal_closure = HorizontalScalarDiffusivity(ν = νh, κ = κh)
+                                       
 parameters = (
     Ly = Ly,                   # y-domain length
     τ = 0.2,                   # [N m⁻²] Zonal stress
@@ -134,11 +135,11 @@ if hydrostatic
     model = HydrostaticFreeSurfaceModel(
             grid = grid,
             free_surface = ImplicitFreeSurface(),
-            momentum_advection = WENO5(),
-            tracer_advection = WENO5(),
+            momentum_advection = WENO(),
+            tracer_advection = WENO(),
             buoyancy = BuoyancyTracer(),
             coriolis = coriolis,
-            closure = (diffusive_closure, convective_adjustment),
+            closure = (horizontal_closure, vertical_closure, convective_adjustment),
             tracers = (:b,),
             boundary_conditions = bcs,
             forcing = forcings,
@@ -148,7 +149,7 @@ else
                     grid = grid,
                 coriolis = coriolis,
                 buoyancy = buoyancy,
-                    closure = diffusive_closure,
+                    closure = (horizontal_closure, vertical_closure),
                     tracers = (:b,),
         boundary_conditions = bcs,
                     forcing = forcings,

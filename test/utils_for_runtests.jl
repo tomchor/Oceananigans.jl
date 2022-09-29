@@ -14,19 +14,43 @@ test_architectures() = CUDA.has_cuda() ? tuple(GPU()) : tuple(CPU())
 function summarize_regression_test(fields, correct_fields)
     for (field_name, φ, φ_c) in zip(keys(fields), fields, correct_fields)
         Δ = φ .- φ_c
-
         Δ_min      = minimum(Δ)
         Δ_max      = maximum(Δ)
         Δ_mean     = mean(Δ)
         Δ_abs_mean = mean(abs, Δ)
         Δ_std      = std(Δ)
-
         matching    = sum(φ .≈ φ_c)
         grid_points = length(φ_c)
 
         @info @sprintf("Δ%s: min=%+.6e, max=%+.6e, mean=%+.6e, absmean=%+.6e, std=%+.6e (%d/%d matching grid points)",
                        field_name, Δ_min, Δ_max, Δ_mean, Δ_abs_mean, Δ_std, matching, grid_points)
     end
+end
+
+#####
+##### Grid utils
+#####
+
+# TODO: docstring?
+function center_clustered_coord(N, L, x₀)
+    Δz(k)   = k < N / 2 + 1 ? 2 / (N - 1) * (k - 1) + 1 : - 2 / (N - 1) * (k - N) + 1 
+    z_faces = zeros(N+1) 
+    for k = 2:N+1
+        z_faces[k] = z_faces[k-1] + 3 - Δz(k-1)
+    end
+    z_faces = z_faces ./ z_faces[end] .* L .+ x₀
+    return z_faces
+end
+
+# TODO: docstring?
+function boundary_clustered_coord(N, L, x₀)
+    Δz(k)   = k < N / 2 + 1 ? 2 / (N - 1) * (k - 1) + 1 : - 2 / (N - 1) * (k - N) + 1 
+    z_faces = zeros(N+1) 
+    for k = 2:N+1
+        z_faces[k] = z_faces[k-1] + Δz(k-1)
+    end
+    z_faces = z_faces ./ z_faces[end] .* L .+ x₀ 
+    return z_faces
 end
 
 #####
@@ -44,11 +68,11 @@ end
 end
 
 function compute_∇²!(∇²ϕ, ϕ, arch, grid)
-    fill_halo_regions!(ϕ, arch)
+    fill_halo_regions!(ϕ)
     child_arch = child_architecture(arch)
     event = launch!(child_arch, grid, :xyz, ∇²!, ∇²ϕ, grid, ϕ, dependencies=Event(device(child_arch)))
     wait(device(child_arch), event)
-    fill_halo_regions!(∇²ϕ, arch)
+    fill_halo_regions!(∇²ϕ)
     return nothing
 end
 
@@ -62,14 +86,6 @@ interior(a, grid) = view(a, grid.Hx+1:grid.Nx+grid.Hx,
 
 datatuple(A) = NamedTuple{propertynames(A)}(Array(data(a)) for a in A)
 datatuple(args, names) = NamedTuple{names}(a.data for a in args)
-
-function get_model_field(field_name, model)
-    if field_name ∈ (:u, :v, :w)
-        return getfield(model.velocities, field_name)
-    else
-        return getfield(model.tracers, field_name)
-    end
-end
 
 function get_output_tuple(output, iter, tuplename)
     file = jldopen(output.filepath, "r")
@@ -107,7 +123,7 @@ function run_script(replace_strings, script_name, script_filepath, module_suffix
 
         # Print the content of the file to the test log, with line numbers, for debugging
         test_file_content = read(test_script_filepath, String)
-        delineated_file_content = split(test_file_content, '\n')
+        delineated_file_content = split(test_file_content, "\n")
         for (number, line) in enumerate(delineated_file_content)
             @printf("% 3d %s\n", number, line)
         end

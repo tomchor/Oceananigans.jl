@@ -17,19 +17,14 @@ import Oceananigans: fields, prognostic_fields
 
 function PressureSolver(arch::MultiArch, local_grid::RegRectilinearGrid)
     global_grid = reconstruct_global_grid(local_grid)
-    if arch.ranks[1] == 1 # we would have to allow different settings 
-        return DistributedFFTBasedPoissonSolver(global_grid, local_grid)
-    else
-        @warn "A Distributed NonhydrostaticModel is allowed only when the x-direction is not parallelized"
-        return nothing
-    end
+    return DistributedFFTBasedPoissonSolver(global_grid, local_grid)
 end
 
 PressureSolver(arch, grid::RegRectilinearGrid)  = FFTBasedPoissonSolver(grid)
 PressureSolver(arch, grid::HRegRectilinearGrid) = FourierTridiagonalPoissonSolver(grid)
 
 # *Evil grin*
-PressureSolver(arch, ibg::ImmersedBoundaryGrid) = PressureSolver(arch, ibg.grid)
+PressureSolver(arch, ibg::ImmersedBoundaryGrid) = PressureSolver(arch, ibg.underlying_grid)
 
 #####
 ##### NonhydrostaticModel definition
@@ -47,16 +42,23 @@ include("set_nonhydrostatic_model.jl")
 """
     fields(model::NonhydrostaticModel)
 
-Returns a flattened `NamedTuple` of the fields in `model.velocities` and `model.tracers`.
+Return a flattened `NamedTuple` of the fields in `model.velocities`, `model.tracers`, and any
+auxiliary fields for a `NonhydrostaticModel` model.
 """
-fields(model::NonhydrostaticModel) = merge(model.velocities, model.tracers)
-prognostic_fields(model::NonhydrostaticModel) = fields(model)
+fields(model::NonhydrostaticModel) = merge(model.velocities, model.tracers, model.auxiliary_fields)
+
+"""
+    prognostic_fields(model::HydrostaticFreeSurfaceModel)
+
+Return a flattened `NamedTuple` of the prognostic fields associated with `NonhydrostaticModel`.
+"""
+prognostic_fields(model::NonhydrostaticModel) = merge(model.velocities, model.tracers)
 
 include("solve_for_pressure.jl")
 include("update_hydrostatic_pressure.jl")
 include("update_nonhydrostatic_model_state.jl")
 include("pressure_correction.jl")
-include("velocity_and_tracer_tendencies.jl")
+include("nonhydrostatic_tendency_kernel_functions.jl")
 include("calculate_nonhydrostatic_tendencies.jl")
 include("correct_nonhydrostatic_immersed_tendencies.jl")
 

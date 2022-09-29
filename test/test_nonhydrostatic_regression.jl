@@ -1,4 +1,5 @@
 include("dependencies_for_runtests.jl")
+include("data_dependencies.jl")
 
 using Oceananigans.Grids: topology, XRegLatLonGrid, YRegLatLonGrid, ZRegLatLonGrid
 
@@ -46,21 +47,26 @@ include("regression_tests/ocean_large_eddy_simulation_regression_test.jl")
     @info "Running nonhydrostatic regression tests..."
 
     for arch in archs
+        A = typeof(arch)
+
         for grid_type in [:regular, :vertically_unstretched]
-            @testset "Thermal bubble [$(typeof(arch)), $grid_type grid]" begin
-                @info "  Testing thermal bubble regression [$(typeof(arch)), $grid_type grid]"
+            @testset "Thermal bubble [$A, $grid_type grid]" begin
+                @info "  Testing thermal bubble regression [$A, $grid_type grid]"
                 run_thermal_bubble_regression_test(arch, grid_type)
             end
 
-            @testset "Rayleigh–Bénard tracer [$(typeof(arch)), $grid_type grid]]" begin
-                @info "  Testing Rayleigh–Bénard tracer regression [$(typeof(arch)), $grid_type grid]"
+            @testset "Rayleigh–Bénard tracer [$A, $grid_type grid]]" begin
+                @info "  Testing Rayleigh–Bénard tracer regression [$A, $grid_type grid]"
                 run_rayleigh_benard_regression_test(arch, grid_type)
             end
 
-            for closure in (AnisotropicMinimumDissipation(ν=1.05e-6, κ=1.46e-7), SmagorinskyLilly(C=0.23, Cb=1, Pr=1, ν=1.05e-6, κ=1.46e-7))
-                closurename = string(typeof(closure).name.wrapper)
-                @testset "Ocean large eddy simulation [$(typeof(arch)), $closurename, $grid_type grid]" begin
-                    @info "  Testing oceanic large eddy simulation regression [$(typeof(arch)), $closurename, $grid_type grid]"
+            amd_closure = (AnisotropicMinimumDissipation(), ScalarDiffusivity(ν=1.05e-6, κ=1.46e-7))
+            smag_closure = (SmagorinskyLilly(C=0.23, Cb=1, Pr=1), ScalarDiffusivity(ν=1.05e-6, κ=1.46e-7))
+
+            for closure in (amd_closure, smag_closure)
+                closurename = string(typeof(first(closure)).name.wrapper)
+                @testset "Ocean large eddy simulation [$A, $closurename, $grid_type grid]" begin
+                    @info "  Testing oceanic large eddy simulation regression [$A, $closurename, $grid_type grid]"
                     run_ocean_large_eddy_simulation_regression_test(arch, grid_type, closure)
                 end
             end

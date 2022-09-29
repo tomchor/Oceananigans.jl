@@ -1,7 +1,5 @@
-include("dependencies_for_runtests.jl")
-
 using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid, GridFittedBoundary, GridFittedBottom
-using Oceananigans.TurbulenceClosures: VerticallyImplicitTimeDiscretization
+using Oceananigans.TurbulenceClosures
 
 @inline surface_wind_stress(λ, φ, t, p) = p.τ₀ * cos(2π * (φ - p.φ₀) / p.Lφ)
 @inline u_bottom_drag(i, j, grid, clock, fields, μ) = @inbounds - μ * fields.u[i, j, 1]
@@ -22,8 +20,8 @@ using Oceananigans.TurbulenceClosures: VerticallyImplicitTimeDiscretization
             bump(x, y, z) = z < exp(-x^2 - y^2)
             grid = ImmersedBoundaryGrid(underlying_grid, GridFittedBoundary(bump))
             
-            for closure in (IsotropicDiffusivity(ν=1, κ=0.5),
-                            IsotropicDiffusivity(ν=1, κ=0.5, time_discretization=VerticallyImplicitTimeDiscretization()))
+            for closure in (ScalarDiffusivity(ν=1, κ=0.5),
+                            ScalarDiffusivity(VerticallyImplicitTimeDiscretization(), ν=1, κ=0.5))
 
                 model = HydrostaticFreeSurfaceModel(grid = grid, 
                                                     tracers = :b,
@@ -70,7 +68,7 @@ using Oceananigans.TurbulenceClosures: VerticallyImplicitTimeDiscretization
             grid = ImmersedBoundaryGrid(underlying_grid, GridFittedBottom(bathymetry))
 
             free_surface = ImplicitFreeSurface(gravitational_acceleration=0.1)
-            coriolis = HydrostaticSphericalCoriolis(scheme = VectorInvariantEnstrophyConserving())
+            coriolis = HydrostaticSphericalCoriolis(scheme = EnstrophyConservingScheme())
 
             surface_wind_stress_parameters = (τ₀ = 1e-4,
                                               Lφ = grid.Ly,
@@ -93,7 +91,7 @@ using Oceananigans.TurbulenceClosures: VerticallyImplicitTimeDiscretization
             v_bcs = FieldBoundaryConditions(bottom = v_bottom_drag_bc)
 
             νh₀ = 5e3 * (60 / grid.Nx)^2
-            constant_horizontal_diffusivity = HorizontallyCurvilinearAnisotropicDiffusivity(νh=νh₀)
+            constant_horizontal_diffusivity = HorizontalScalarDiffusivity(ν=νh₀)
 
             model = HydrostaticFreeSurfaceModel(; grid,
                                                 momentum_advection = VectorInvariant(),
@@ -132,7 +130,7 @@ using Oceananigans.TurbulenceClosures: VerticallyImplicitTimeDiscretization
             grid = ImmersedBoundaryGrid(underlying_grid, GridFittedBottom(B))
 
             model = HydrostaticFreeSurfaceModel(; grid,
-                                                free_surface = ImplicitFreeSurface(),
+                                                free_surface = ImplicitFreeSurface(solver_method = :PreconditionedConjugateGradient),
                                                 buoyancy = nothing,
                                                 tracers = nothing,
                                                 closure = nothing)

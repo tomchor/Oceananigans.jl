@@ -3,7 +3,7 @@ module AbstractOperations
 export ∂x, ∂y, ∂z, @at, @unary, @binary, @multiary
 export Δx, Δy, Δz, Ax, Ay, Az, volume
 export Average, Integral, KernelFunctionOperation
-export UnaryOperation, Derivative, BinaryOperation, MultiaryOperation
+export UnaryOperation, Derivative, BinaryOperation, MultiaryOperation, ConditionalOperation
 
 using Base: @propagate_inbounds
 
@@ -16,6 +16,7 @@ using Oceananigans.Grids
 using Oceananigans.Operators
 using Oceananigans.BoundaryConditions
 using Oceananigans.Fields
+using Oceananigans.Utils
 
 using Oceananigans.Operators: interpolation_operator
 using Oceananigans.Architectures: device
@@ -23,7 +24,7 @@ using Oceananigans: AbstractModel
 
 import Oceananigans.Architectures: architecture
 import Oceananigans.BoundaryConditions: fill_halo_regions!
-import Oceananigans.Fields: data, compute_at!
+import Oceananigans.Fields: compute_at!
 
 #####
 ##### Basic functionality
@@ -34,7 +35,7 @@ abstract type AbstractOperation{LX, LY, LZ, G, T} <: AbstractField{LX, LY, LZ, G
 const AF = AbstractField # used in unary_operations.jl, binary_operations.jl, etc
 
 # We have no halos to fill
-fill_halo_regions!(::AbstractOperation, args...; kwargs...) = nothing
+@inline fill_halo_regions!(::AbstractOperation, args...; kwargs...) = nothing
 
 architecture(a::AbstractOperation) = architecture(a.grid)
 
@@ -56,6 +57,7 @@ include("binary_operations.jl")
 include("multiary_operations.jl")
 include("derivatives.jl")
 include("kernel_function_operation.jl")
+include("conditional_operations.jl")
 include("computed_field.jl")
 include("at.jl")
 include("broadcasting_abstract_operations.jl")
@@ -63,11 +65,12 @@ include("show_abstract_operations.jl")
 
 # Make some operators!
 
-# Some unaries:
+# Some operators:
 import Base: sqrt, sin, cos, exp, tanh, -, +, /, ^, *
 
 @unary sqrt sin cos exp tanh
 @unary -
+@unary +
 
 @binary +
 @binary -
@@ -89,4 +92,3 @@ push!(operators, :*)
 push!(multiary_operators, :*)
 
 end # module
-

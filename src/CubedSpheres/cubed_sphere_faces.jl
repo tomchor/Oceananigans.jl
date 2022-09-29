@@ -6,10 +6,10 @@ using Oceananigans.AbstractOperations: AbstractOperation
 using OffsetArrays: OffsetArray
 using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid
 
-import Base: getindex, size, show, minimum, maximum
+import Base: getindex, size, show, minimum, maximum, length
 import Statistics: mean
 
-import Oceananigans.Fields: AbstractField, Field, minimum, maximum, mean, location, short_show, set!
+import Oceananigans.Fields: AbstractField, Field, FieldBoundaryBuffers, minimum, maximum, mean, location, set!
 import Oceananigans.Grids: new_data
 import Oceananigans.BoundaryConditions: FieldBoundaryConditions
 
@@ -22,6 +22,7 @@ function CubedSphereFaces(faces::F) where F
     return CubedSphereFaces{E, F}(faces)
 end
 
+@inline Base.length(f::CubedSphereFaces) = Base.length(f.faces)
 @inline Base.getindex(f::CubedSphereFaces, i::Int) = @inbounds f.faces[i]
 
 #####
@@ -59,28 +60,34 @@ const AbstractCubedSphereField{LX, LY, LZ} =
 ##### new data
 #####
 
-function new_data(FT, grid::ConformalCubedSphereGrid, (LX, LY, LZ))
-    faces = Tuple(new_data(FT, face_grid, (LX, LY, LZ)) for face_grid in grid.faces)
-    return CubedSphereFaces{typeof(faces[1]), typeof(faces)}(faces)
+function new_data(FT::DataType, grid::ConformalCubedSphereGrid, loc, indices)
+    faces = Tuple(new_data(FT, face_grid, loc, indices) for face_grid in grid.faces)
+    return CubedSphereFaces(faces)
 end
 
 #####
 ##### FieldBoundaryConditions
 #####
 
-function FieldBoundaryConditions(grid::ConformalCubedSphereGrid, (LX, LY, LZ); user_defined_bcs...)
+function FieldBoundaryConditions(grid::ConformalCubedSphereGrid, loc, indices; user_defined_bcs...)
 
     faces = Tuple(
         inject_cubed_sphere_exchange_boundary_conditions(
-            FieldBoundaryConditions(face_grid, (LX, LY, LZ); user_defined_bcs...),
+            FieldBoundaryConditions(face_grid, loc, indices; user_defined_bcs...),
             face_index,
             grid.face_connectivity
         )
         for (face_index, face_grid) in enumerate(grid.faces)
     )
 
-    return CubedSphereFaces{typeof(faces[1]), typeof(faces)}(faces)
+    return CubedSphereFaces(faces)
 end
+
+#####
+##### FieldBoundaryBuffers
+#####
+
+FieldBoundaryBuffers(grid::ConformalCubedSphereGrid, args...) = FieldBoundaryBuffers()
 
 #####
 ##### Utils
@@ -92,7 +99,7 @@ function Base.show(io::IO, field::Union{CubedSphereField, AbstractCubedSphereFie
     A = typeof(arch)
     return print(io, "$(typeof(field).name.wrapper) at ($LX, $LY, $LZ)\n",
           "├── architecture: $A\n",
-          "└── grid: $(short_show(field.grid))")
+          "└── grid: $(summary(field.grid))")
 end
 
 @inline function interior(field::AbstractCubedSphereField)
@@ -104,11 +111,22 @@ Base.size(field::CubedSphereField) = size(field.data)
 Base.size(data::CubedSphereData) = (size(data.faces[1])..., length(data.faces))
 
 @inline get_face(field::CubedSphereField, face_index) =
-    Field(location(field), get_face(field.grid, face_index);
-          data = get_face(field.data, face_index),
-          boundary_conditions = get_face(field.boundary_conditions, face_index))
+    Field(location(field),
+          get_face(field.grid, face_index),
+          get_face(field.data, face_index),
+          get_face(field.boundary_conditions, face_index),
+          field.indices,
+          get_face(field.operand, face_index),
+          nothing)
     
 faces(field::AbstractCubedSphereField) = Tuple(get_face(field, face_index) for face_index in 1:length(field.data.faces))
+
+function Base.fill!(csf::CubedSphereField, val)
+    for field in faces(csf)
+        fill!(field, val)
+    end
+    return csf
+end
 
 #####
 ##### set!

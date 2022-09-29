@@ -1,6 +1,7 @@
 include("dependencies_for_runtests.jl")
 
-using Oceananigans.Fields: cpudata, FieldSlicer, interior_copy
+using Statistics
+
 using Oceananigans.Fields: regrid!, ReducedField, has_velocities
 using Oceananigans.Fields: VelocityFields, TracerFields, interpolate
 using Oceananigans.Fields: reduced_location
@@ -84,23 +85,13 @@ function run_field_reduction_tests(FT, arch)
         @test mean(abs2, ϕ) ≈ mean(abs2, ϕ) atol=ε
 
         for dims in dims_to_test
-            @test all(isapprox(minimum(ϕ, dims=dims),
-                               minimum(ϕ_vals, dims=dims), atol=4ε))
-
-            @test all(isapprox(maximum(ϕ, dims=dims),
-                               maximum(ϕ_vals, dims=dims), atol=4ε))
-
-            @test all(isapprox(mean(ϕ, dims=dims),
-                               mean(ϕ_vals, dims=dims), atol=4ε))
-
-            @test all(isapprox(minimum(sin, ϕ, dims=dims),
-                               minimum(sin, ϕ_vals, dims=dims), atol=4ε))
-
-            @test all(isapprox(maximum(cos, ϕ, dims=dims),
-                               maximum(cos, ϕ_vals, dims=dims), atol=4ε))
-
-            @test all(isapprox(mean(cosh, ϕ, dims=dims),
-                               mean(cosh, ϕ_vals, dims=dims), atol=5ε))
+            @test all(isapprox(minimum(ϕ, dims=dims), minimum(ϕ_vals, dims=dims), atol=4ε))
+            @test all(isapprox(maximum(ϕ, dims=dims), maximum(ϕ_vals, dims=dims), atol=4ε))
+            @test all(isapprox(mean(ϕ, dims=dims), mean(ϕ_vals, dims=dims), atol=4ε))
+                               
+            @test all(isapprox(minimum(sin, ϕ, dims=dims), minimum(sin, ϕ_vals, dims=dims), atol=4ε))
+            @test all(isapprox(maximum(cos, ϕ, dims=dims), maximum(cos, ϕ_vals, dims=dims), atol=4ε))
+            @test all(isapprox(mean(cosh, ϕ, dims=dims), mean(cosh, ϕ_vals, dims=dims), atol=5ε))
         end
 
         CUDA.allowscalar(true)
@@ -111,7 +102,7 @@ end
 
 function run_field_interpolation_tests(FT, arch)
 
-    grid = RectilinearGrid(arch, size=(4, 5, 7), x=(0, 1), y=(-π, π), z=(-5.3, 2.7))
+    grid = RectilinearGrid(arch, size=(4, 5, 7), x=(0, 1), y=(-π, π), z=(-5.3, 2.7), halo=(1, 1, 1))
 
     velocities = VelocityFields(grid)
     tracers = TracerFields((:c,), grid)
@@ -180,7 +171,7 @@ end
         H = (1, 1, 1)
 
         for arch in archs, FT in float_types
-            grid = RectilinearGrid(arch , FT, size=N, extent=L, halo=H, topology=(Periodic, Periodic, Periodic))
+            grid = RectilinearGrid(arch, FT, size=N, extent=L, halo=H, topology=(Periodic, Periodic, Periodic))
             @test correct_field_size(grid, (Center, Center, Center), N[1] + 2 * H[1], N[2] + 2 * H[2], N[3] + 2 * H[3])
             @test correct_field_size(grid, (Face,   Center, Center), N[1] + 2 * H[1], N[2] + 2 * H[2], N[3] + 2 * H[3])
             @test correct_field_size(grid, (Center, Face,   Center), N[1] + 2 * H[1], N[2] + 2 * H[2], N[3] + 2 * H[3])
@@ -216,6 +207,65 @@ end
             @test correct_field_size(grid, (Center,  Nothing, Nothing), N[1] + 2 * H[1], 1,                   1)
             @test correct_field_size(grid, (Nothing, Nothing, Nothing), 1,               1,                   1)
 
+            # "View" fields
+            for f in [CenterField(grid), XFaceField(grid), YFaceField(grid), ZFaceField(grid)]
+
+                test_indices = [(:, :, :), (1:2, 3:4, 5:6), (1, 1:6, :)]
+                test_field_sizes  = [size(f), (2, 2, 2), (1, 6, size(f, 3))]
+                test_parent_sizes = [size(parent(f)), (2, 2, 2), (1, 6, size(parent(f), 3))] 
+
+                for (t, indices) in enumerate(test_indices)
+                    field_sz = test_field_sizes[t]
+                    parent_sz = test_parent_sizes[t]
+                    f_view = view(f, indices...)
+                    f_sliced = Field(f; indices)
+                    @test size(f_view) == field_sz
+                    @test size(parent(f_view)) == parent_sz
+                end
+            end
+        
+            grid = RectilinearGrid(arch, FT, size=N, extent=L, halo=H, topology=(Periodic, Periodic, Periodic))
+            for side in (:east, :west, :north, :south, :top, :bottom)
+                for wrong_bc in (ValueBoundaryCondition(0), 
+                                 FluxBoundaryCondition(0),
+                                 GradientBoundaryCondition(0))
+
+                    wrong_kw = Dict(side => wrong_bc)
+                    wrong_bcs = FieldBoundaryConditions(grid, (Center, Center, Center); wrong_kw...)
+                    @test_throws ArgumentError CenterField(grid, boundary_conditions=wrong_bcs)
+                end
+            end
+
+            grid = RectilinearGrid(arch, FT, size=N[2:3], extent=L[2:3], halo=H[2:3], topology=(Flat, Periodic, Periodic))
+            for side in (:east, :west)
+                for wrong_bc in (ValueBoundaryCondition(0), 
+                                 FluxBoundaryCondition(0),
+                                 GradientBoundaryCondition(0))
+
+                    wrong_kw = Dict(side => wrong_bc)
+                    wrong_bcs = FieldBoundaryConditions(grid, (Center, Center, Center); wrong_kw...)
+                    @test_throws ArgumentError CenterField(grid, boundary_conditions=wrong_bcs)
+                end
+            end
+
+            grid = RectilinearGrid(arch, FT, size=N, extent=L, halo=H, topology=(Periodic, Bounded, Bounded))
+            for side in (:east, :west, :north, :south)
+                for wrong_bc in (ValueBoundaryCondition(0), 
+                                 FluxBoundaryCondition(0),
+                                 GradientBoundaryCondition(0))
+
+                    wrong_kw = Dict(side => wrong_bc)
+                    wrong_bcs = FieldBoundaryConditions(grid, (Center, Face, Face); wrong_kw...)
+
+                    @test_throws ArgumentError Field{Center, Face, Face}(grid, boundary_conditions=wrong_bcs)
+                end
+            end
+
+            if arch isa GPU
+                wrong_bcs = FieldBoundaryConditions(grid, (Center, Center, Center),
+                                                    top=FluxBoundaryCondition(zeros(FT, N[1], N[2])))
+                @test_throws ArgumentError CenterField(grid, boundary_conditions=wrong_bcs)
+            end
         end
     end
 
@@ -312,18 +362,6 @@ end
         @test has_velocities((:u, :v)) == false
         @test has_velocities((:u, :v, :w)) == true
 
-        grid = RectilinearGrid(CPU(), size=(4, 6, 8), extent=(1, 1, 1))
-        ϕ = CenterField(grid)
-        @test cpudata(ϕ).parent isa Array
-
-        if CUDA.has_cuda()
-            grid = RectilinearGrid(GPU(), size=(4, 6, 8), extent=(1, 1, 1))
-            ϕ = CenterField(grid)
-            @test cpudata(ϕ).parent isa Array
-        end
-
-        @test FieldSlicer() isa FieldSlicer
-
         @info "    Testing similar(f) for f::Union(Field, ReducedField)..."
 
         grid = RectilinearGrid(CPU(), size=(1, 1, 1), extent=(1, 1, 1))
@@ -350,6 +388,8 @@ end
         topology = (Flat, Flat, Bounded)
         
         for arch in archs
+            fine_regular_grid                = RectilinearGrid(arch, size=(4, 6, 2), x=(0, 1), y=(0, 2), z=(0, Lz), topology=(Periodic, Periodic, Bounded))
+            fine_stretched_grid              = RectilinearGrid(arch, size=(4, 6, 2), x=(0, 1), y=(0, 2), z = [0, ℓz, Lz], topology=(Periodic, Periodic, Bounded))
             coarse_column_regular_grid       = RectilinearGrid(arch, size=1, z=(0, Lz), topology=topology)
             fine_column_regular_grid         = RectilinearGrid(arch, size=2, z=(0, Lz), topology=topology)
             fine_column_stretched_grid       = RectilinearGrid(arch, size=2, z = [0, ℓz, Lz], topology=topology)
@@ -357,12 +397,14 @@ end
             super_fine_column_stretched_grid = RectilinearGrid(arch, size=4, z = [0, 0.1, 0.3, 0.65, Lz], topology=topology)
             super_fine_column_regular_grid   = RectilinearGrid(arch, size=5, z=(0, Lz), topology=topology)
             
+            fine_stretched_c              = CenterField(fine_stretched_grid)
             coarse_column_regular_c       = CenterField(coarse_column_regular_grid)
             fine_column_regular_c         = CenterField(fine_column_regular_grid)
             fine_column_stretched_c       = CenterField(fine_column_stretched_grid)
             very_fine_column_stretched_c  = CenterField(very_fine_column_stretched_grid)
             super_fine_column_stretched_c = CenterField(super_fine_column_stretched_grid)
             super_fine_column_regular_c   = CenterField(super_fine_column_regular_grid)
+            super_fine_from_reduction_regular_c = CenterField(super_fine_column_regular_grid)
 
             # we initialize an array on the `fine_column_stretched_grid`, regrid it to the rest
             # grids, and check whether we get the anticipated results
@@ -372,6 +414,10 @@ end
                 fine_column_stretched_c[1, 1, 1] = c₁
                 fine_column_stretched_c[1, 1, 2] = c₂
             end
+
+            @show typeof(fine_stretched_c[:, :, 1])
+            fine_stretched_c[:, :, 1] .= c₁
+            fine_stretched_c[:, :, 2] .= c₂
 
             # Coarse-graining
             regrid!(coarse_column_regular_c, fine_column_stretched_c)
@@ -413,6 +459,20 @@ end
                 @test super_fine_column_regular_c[1, 1, 3] ≈ (3 - ℓz/(Lz/5)) * c₂ + (-2 + ℓz/(Lz/5)) * c₁
                 @test super_fine_column_regular_c[1, 1, 4] ≈ c₂
                 @test super_fine_column_regular_c[1, 1, 5] ≈ c₂
+            end
+
+            # Fine-graining from reduction
+            fine_stretched_c_mean_xy = Field(Reduction(mean!, fine_stretched_c, dims=(1, 2)))
+            compute!(fine_stretched_c_mean_xy)
+
+            regrid!(super_fine_from_reduction_regular_c, fine_stretched_c_mean_xy)
+            
+            CUDA.@allowscalar begin
+                @test super_fine_from_reduction_regular_c[1, 1, 1] ≈ c₁
+                @test super_fine_from_reduction_regular_c[1, 1, 2] ≈ c₁
+                @test super_fine_from_reduction_regular_c[1, 1, 3] ≈ (3 - ℓz/(Lz/5)) * c₂ + (-2 + ℓz/(Lz/5)) * c₁
+                @test super_fine_from_reduction_regular_c[1, 1, 4] ≈ c₂
+                @test super_fine_from_reduction_regular_c[1, 1, 5] ≈ c₂
             end
         end
     end
